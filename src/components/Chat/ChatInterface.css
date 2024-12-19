@@ -1,0 +1,156 @@
+/* styles.css */
+.chat-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+  
+  .chat-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  
+  .chat-header h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .chat-header .name {
+    color: #9333ea;
+  }
+  
+  .chat-header h2 {
+    font-size: 1.5rem;
+    color: #6b21a8;
+    margin-bottom: 0.5rem;
+  }
+  
+  .subtitle {
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+  
+  .prompts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .prompt-card {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+  }
+  
+  .prompt-card:hover {
+    border-color: #9333ea;
+    background-color: #f3f4f6;
+  }
+  
+  .prompt-card.selected {
+    border-color: #9333ea;
+    background-color: #f3f4f6;
+  }
+  
+  .prompt-icon {
+    margin-right: 0.75rem;
+    color: #4b5563;
+  }
+  
+  .prompt-text {
+    font-size: 0.875rem;
+    color: #1f2937;
+  }
+  
+  .refresh-section {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+  
+  .refresh-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    transition: color 0.2s ease;
+  }
+  
+  .refresh-button:hover {
+    color: #4b5563;
+  }
+  
+  .input-form {
+    position: relative;
+  }
+  
+  .chat-input {
+    width: 100%;
+    padding: 1rem;
+    padding-right: 8rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+  
+  .chat-input:focus {
+    border-color: #9333ea;
+  }
+  
+  .input-actions {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .action-button {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 0.875rem;
+  }
+  
+  .action-button:hover {
+    color: #4b5563;
+  }
+  
+  .submit-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    background-color: #9333ea;
+    border: none;
+    border-radius: 0.5rem;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  .submit-button:hover {
+    background-color: #7e22ce;
+  }
