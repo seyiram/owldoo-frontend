@@ -1,15 +1,17 @@
 import React, { useState } from "react";
 import {
   RefreshCw,
-  UserCircle2,
+  User,
   Mail,
   FileText,
-  Settings,
+  SlidersHorizontal,
   Paperclip,
   Image as ImageIcon,
   Send,
 } from "lucide-react";
-import "./ChatInterface.css";
+import "./ChatCompose.css";
+import { useNavigate } from "react-router-dom";
+import { useChatStore } from "../../../store/useChatStore";
 
 interface Prompt {
   id: string;
@@ -21,26 +23,28 @@ const prompts: Prompt[] = [
   {
     id: "todo",
     title: "Write a to-do list for a personal project or task",
-    icon: <UserCircle2 size={24} />,
+    icon: <User size={20} />,
   },
   {
     id: "email",
     title: "Generate an email to reply to a job offer",
-    icon: <Mail size={24} />,
+    icon: <Mail size={20} />,
   },
   {
     id: "summary",
     title: "Summarise this article or text for me in one paragraph",
-    icon: <FileText size={24} />,
+    icon: <FileText size={20} />,
   },
   {
     id: "ai",
     title: "How does AI work in a technical capacity",
-    icon: <Settings size={24} />,
+    icon: <SlidersHorizontal size={20} />,
   },
 ];
 
-const ChatInterface: React.FC = () => {
+const ChatCompose: React.FC = () => {
+  const navigate = useNavigate();
+  const createThread = useChatStore((state) => state.createThread);
   const [inputText, setInputText] = useState<string>("");
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
 
@@ -54,18 +58,24 @@ const ChatInterface: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle submission logic here
+    try {
+      const threadId = createThread(inputText);
+      navigate(`/thread/${threadId}`);
+    } catch (error) {
+      console.error("Failed to create thread:", error);
+    }
+
     console.log("Submitted:", inputText);
   };
 
   return (
-    <div className="chat-container">
-      <header className="chat-header">
+    <div className="compose-container">
+      <header className="compose-header">
         <h1>
-          Hi there, <span className="name">John</span>
+          Hi there, <span className="compose-name">John</span>
         </h1>
         <h2>What would like to know?</h2>
-        <p className="subtitle">
+        <p className="compose-subtitle">
           Use one of the most common prompts below or use your own to begin
         </p>
       </header>
@@ -79,8 +89,8 @@ const ChatInterface: React.FC = () => {
             }`}
             onClick={() => handlePromptClick(prompt.id)}
           >
-            <span className="prompt-icon">{prompt.icon}</span>
             <span className="prompt-text">{prompt.title}</span>
+            <span className="prompt-icon">{prompt.icon}</span>
           </button>
         ))}
       </div>
@@ -92,30 +102,30 @@ const ChatInterface: React.FC = () => {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="input-form">
+      <form onSubmit={handleSubmit} className="compose-input-form">
         <input
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder="Ask whatever you want...."
-          className="chat-input"
+          className="compose-input"
         />
-        <div className="input-actions">
-          <button type="button" className="action-button">
+        <div className="compose-input-actions">
+          <button type="button" className="compose-action-button">
             <Paperclip size={20} />
             Add Attachment
           </button>
-          <button type="button" className="action-button">
+          <button type="button" className="compose-action-button">
             <ImageIcon size={20} />
             Use Image
           </button>
-          <button type="submit" className="submit-button">
-            <Send size={20} />
-          </button>
         </div>
+        <button type="submit" className="compose-submit-button">
+          <Send size={20} />
+        </button>
       </form>
     </div>
   );
 };
 
-export default ChatInterface;
+export default ChatCompose;
