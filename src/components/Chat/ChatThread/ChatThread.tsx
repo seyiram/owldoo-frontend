@@ -3,47 +3,64 @@ import React, { useEffect, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { v4 as uuid } from "uuid";
 import { Message } from "../../../types/chat.types";
-import { useChatStore } from "../../../store/useChatStore";
+import { apiService } from "../../../api/api";
 import { PropagateLoader } from "react-spinners";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
-  const {
-    threads,
-    createThread,
-    isLoading,
-    error,
-    sendMessage,
-    setCurrentThread,
-  } = useChatStore();
   const location = useLocation();
   const initialMessage = location.state?.initialMessage || "";
 
-  const currentThread = threads.find((thread) => thread.id === threadId);
-  const messages = currentThread?.messages || [];
-
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialMessage && !currentThread) {
-      createThread(initialMessage);
+    const fetchThread = async () => {
+      setIsLoading(true);
+      try {
+        const thread = await apiService.getThread(threadId!);
+        setMessages(thread.messages.map((msg: any) => ({
+          ...msg,
+          id: msg.id || uuid(), // Ensure each message has an id
+        })));
+      } catch (error) {
+        setError("Failed to fetch thread");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (initialMessage && !messages.length) {
+      apiService.createEventFromText(initialMessage).then(() => {
+        fetchThread();
+      });
+    } else {
+      fetchThread();
     }
-  }, [initialMessage]);
+  }, [initialMessage, threadId]);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(event.target.value);
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (newMessage.trim() === "") return;
 
-    if (threadId) {
-      if (newMessage.trim() === "") return;
-
-      if (threadId) {
-        sendMessage(newMessage, threadId);
-        setNewMessage("");
-      }
+    setIsLoading(true);
+    try {
+      await apiService.addMessage(threadId!, newMessage);
+      const updatedThread = await apiService.getThread(threadId!);
+      setMessages(updatedThread.messages.map((msg: any) => ({
+        ...msg,
+        id: msg.id || uuid(), // Ensure each message has an id
+      })));
+      setNewMessage("");
+    } catch (error) {
+      setError("Failed to send message");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -51,7 +68,7 @@ const ChatThread: React.FC = () => {
     <div className="thread-interface">
       {isLoading ? (
         <div className="loader-container">
-          <PropagateLoader color="#36D7B7" loading={isLoading} />
+          <PropagateLoader color="#9333ea" loading={isLoading} />
         </div>
       ) : (
         <>

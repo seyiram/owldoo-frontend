@@ -1,4 +1,4 @@
-import { API_BASE_URL, CALENDAR_ROUTES } from "./api.config";
+import { API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
 
 
 // Types
@@ -76,22 +76,22 @@ class ApiService {
         if (endDate) params.append('endDate', endDate.toISOString());
 
         const query = params.toString() ? `?${params.toString()}` : '';
-        return this.request<Event[]>(`/calendar/events${query}`);
+        return this.request<Event[]>(`${CALENDAR_ROUTES.events}${query}`);
     }
 
     async getEvent(eventId: string) {
-        return this.request<Event>(`/calendar/events/${eventId}`);
+        return this.request<Event>(`${CALENDAR_ROUTES.event}/${eventId}`);
     }
 
     async updateEvent(eventId: string, event: Partial<Event>) {
-        return this.request<Event>(`/calendar/events/${eventId}`, {
+        return this.request<Event>(`${CALENDAR_ROUTES.event}/${eventId}`, {
             method: 'PUT',
             body: JSON.stringify(event)
         });
     }
 
     async deleteEvent(eventId: string) {
-        return this.request(`/calendar/events/${eventId}`, {
+        return this.request(`${CALENDAR_ROUTES.event}/${eventId}`, {
             method: 'DELETE'
         });
     }
@@ -102,7 +102,7 @@ class ApiService {
             endTime: endTime.toISOString()
         });
 
-        return this.request<{ available: boolean }>(`/calendar/availability?${params}`);
+        return this.request<{ available: boolean }>(`${CALENDAR_ROUTES.availability}?${params}`);
     }
 
     async suggestAlternativeTime(startTime: Date, duration: number) {
@@ -111,30 +111,30 @@ class ApiService {
             duration: duration.toString()
         });
 
-        return this.request<{ suggestion: Date | null }>(`/calendar/suggest-time?${params}`);
+        return this.request<{ suggestion: Date | null }>(`${CALENDAR_ROUTES.suggestTime}?${params}`);
     }
 
-    // Thread endpoints
+    // Chat endpoints
     async createThread(message: string) {
-        return this.request<{ threadId: string; message: string }>('/threads/threads', {
+        return this.request<{ threadId: string; message: string }>(CHAT_ROUTES.createThread, {
             method: 'POST',
             body: JSON.stringify({ message })
         });
     }
 
     async addMessage(threadId: string, message: string) {
-        return this.request<{ message: string }>('/threads/messages', {
+        return this.request<{ message: string }>(CHAT_ROUTES.messages(threadId), {
             method: 'POST',
             body: JSON.stringify({ threadId, message })
         });
     }
 
     async getThreads() {
-        return this.request<Thread[]>('/threads/threads');
+        return this.request<Thread[]>(CHAT_ROUTES.threads);
     }
 
     async getThread(threadId: string) {
-        return this.request<Thread>(`/threads/threads/${threadId}`);
+        return this.request<Thread>(CHAT_ROUTES.thread(threadId));
     }
 }
 

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import "./ChatCompose.css";
 import { useNavigate } from "react-router-dom";
-import { useChatStore } from "../../../store/useChatStore";
+import { apiService } from "../../../api/api";
 
 interface Prompt {
   id: string;
@@ -44,7 +44,6 @@ const prompts: Prompt[] = [
 
 const ChatCompose: React.FC = () => {
   const navigate = useNavigate();
-  const createThread = useChatStore((state) => state.createThread);
   const [inputText, setInputText] = useState<string>("");
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
 
@@ -56,11 +55,16 @@ const ChatCompose: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const threadId = createThread(inputText);
-      navigate(`/thread/${threadId}`);
+      const eventResponse = await apiService.createEventFromText(inputText);
+      console.log("Event created from text::", eventResponse);
+
+      const threadResponse = await apiService.createThread(inputText);
+      const { threadId } = threadResponse;
+      console.log("Thread created with ID:", threadId);
+      navigate(`/chat/${threadId}`);
     } catch (error) {
       console.error("Failed to create thread:", error);
     }

@@ -14,33 +14,34 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
             ...state, isLoading: true, error: null
         }));
         try {
-            const threadId = uuid();
-            const newThread: Thread = {
-                id: threadId,
-                messages: [{
-                    id: uuid(),
-                    sender: 'user',
-                    content: initialMessage,
-                    timestamp: new Date().toISOString(),
-                }],
-                createdAt: new Date().toISOString(),
-            };
+
             // Send to backend
-            const response = await fetch(`${API_BASE_URL}/chat/threads`, {
+            const response = await fetch(`${API_BASE_URL}/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ threadId, message: initialMessage }),
+                body: JSON.stringify({ message: initialMessage }),
             });
             if (!response.ok) throw new Error('Failed to create thread');
-            const botResponse = await response.json();
+            const { threadId, message: botResponse } = await response.json();
 
-            // Add bot response to thread
-            newThread.messages.push({
-                id: uuid(),
-                sender: 'bot',
-                content: botResponse.message,
-                timestamp: new Date().toISOString(),
-            });
+            const newThread: Thread = {
+                id: threadId,
+                messages: [
+                    {
+                        id: uuid(),
+                        sender: 'user',
+                        content: initialMessage,
+                        timestamp: new Date().toISOString()
+                    },
+                    {
+                        id: uuid(),
+                        sender: 'bot',
+                        content: botResponse,
+                        timestamp: new Date().toISOString(),
+                    }
+                ],
+                createdAt: new Date().toISOString(),
+            };
             set(state => ({
                 ...state,
                 threads: [...state.threads, newThread],
@@ -78,19 +79,19 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                 ),
             }));
             // Send to backend
-            const response = await fetch(`${API_BASE_URL}/chat/messages`, {
+            const response = await fetch(`${API_BASE_URL}/chat/${threadId}/messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ threadId, message: content }),
+                body: JSON.stringify({ message: content }),
             });
             if (!response.ok) throw new Error('Failed to send message');
-            const botResponse = await response.json();
+            const { message: botResponse } = await response.json();
 
             // Add bot response
             const botMessage: Message = {
                 id: uuid(),
                 sender: 'bot',
-                content: botResponse.message,
+                content: botResponse,
                 timestamp: new Date().toISOString(),
             };
             set(state => ({
@@ -114,7 +115,7 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
     getThreadHistory: async () => {
         set(state => ({ ...state, isLoading: true, error: null }));
         try {
-            const response = await fetch(`${API_BASE_URL}/chat/threads`);
+            const response = await fetch(`${API_BASE_URL}/chat`);
             if (!response.ok) throw new Error('Failed to fetch thread history');
 
             const threads = await response.json();
