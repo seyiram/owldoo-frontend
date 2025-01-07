@@ -6,6 +6,7 @@ import { useChatStore } from "../../../store/useChatStore";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
+  const [visibleThreads, setVisibleThreads] = useState(10);
   const { threads, isLoading, error, sendMessage, getThreadHistory } =
     useChatStore();
 
@@ -36,6 +37,10 @@ const ChatThread: React.FC = () => {
     }
   };
 
+  const handleShowMore = () => {
+    setVisibleThreads((prev) => prev + 5);
+  };
+
   return (
     <div className="thread-interface">
       {isLoading ? (
@@ -52,7 +57,7 @@ const ChatThread: React.FC = () => {
               <input type="text" placeholder="Search" />
             </div>
             <nav className="sidebar-nav">
-              <ul>
+              {/* <ul>
                 <li className="nav-item folder">
                   <span className="nav-item-icon"></span>
                   <span className="nav-item-text">Folder</span>
@@ -68,41 +73,25 @@ const ChatThread: React.FC = () => {
                   <span className="nav-item-text">Archive</span>
                   <span className="nav-item-badge">36</span>
                 </li>
-              </ul>
+              </ul> */}
               <div className="history-list">
                 <ul>
-                  <li>
-                    <a href="#">
-                      What cross-selling oppo...
-                      <span className="timestamp">15m</span>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      What are some common
-                      <span className="timestamp">35m</span>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      Give me an example of...
-                      <span className="timestamp">15m</span>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      Write a 100-characte...
-                      <span className="timestamp">15m</span>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      Compose a blog post of...
-                      <span className="timestamp">35m</span>
-                    </a>
-                  </li>
+                  {threads.slice(0, visibleThreads).map((thread) => (
+                    <li key={thread.id}>
+                      <a href={`/chat/${thread.id}`}>
+                        {thread.messages[0].content}
+                        <span className="timestamp">
+                          {thread.messages[0].timestamp}
+                        </span>
+                      </a>
+                    </li>
+                  ))}
                 </ul>
-                <button className="show-more">Show more</button>
+                {threads.length > visibleThreads && (
+                  <button className="show-more" onClick={handleShowMore}>
+                    Show more
+                  </button>
+                )}
               </div>
             </nav>
 
