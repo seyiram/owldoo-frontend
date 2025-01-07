@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { v4 as uuid } from 'uuid';
 import { ChatState, Message, Thread } from '../types/chat.types';
+import { apiService } from '../api/api';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+
 
 export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => ChatState) => void, get) => ({
     threads: [],
@@ -10,44 +11,59 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
     isLoading: false,
     error: null,
     createThread: async (initialMessage: string) => {
+
         set((state) => ({
             ...state, isLoading: true, error: null
         }));
         try {
-
-            // Send to backend
-            const response = await fetch(`${API_BASE_URL}/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: initialMessage }),
-            });
-            if (!response.ok) throw new Error('Failed to create thread');
-            const { threadId, message: botResponse } = await response.json();
-
-            const newThread: Thread = {
-                id: threadId,
+            // optimistically add user message
+            const tempThread: Thread = {
+                id: uuid(),
                 messages: [
                     {
                         id: uuid(),
                         sender: 'user',
                         content: initialMessage,
                         timestamp: new Date().toISOString()
-                    },
-                    {
-                        id: uuid(),
-                        sender: 'bot',
-                        content: botResponse,
-                        timestamp: new Date().toISOString(),
                     }
                 ],
                 createdAt: new Date().toISOString(),
-            };
+            }
+
+            set((state) => ({
+                ...state, threads: [...state.threads, tempThread]
+            }));
+
+            // API call
+            const response = await apiService.createThread(initialMessage);
+            const { threadId, message: botResponse } = response;
+
+            // Update with real threadId and bot response
+
             set(state => ({
                 ...state,
-                threads: [...state.threads, newThread],
+                threads: state.threads.map(thread =>
+                    thread.id === tempThread.id ? {
+                        ...thread,
+                        id: threadId,
+                        messages: [
+                            ...thread.messages,
+                            {
+                                id: uuid(),
+                                sender: 'bot',
+                                content: botResponse,
+                                timestamp: new Date().toISOString(),
+                            }
+                        ]
+
+                    } : thread
+                ),
                 currentThreadId: threadId,
-                isLoading: false,
-            }));
+                isLoading: false
+
+            }))
+
+
             return threadId;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -62,38 +78,39 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
         }
 
         set(state => ({ ...state, isLoading: true, error: null }));
+
+        // Create optimistic message
+        const newMessage: Message = {
+            id: uuid(),
+            sender: 'user',
+            content,
+            timestamp: new Date().toISOString(),
+        }
+
+        // Update local state immediately with user message
+        set(state => ({
+            ...state,
+            threads: state.threads.map(thread =>
+                thread.id === threadId
+                    ? { ...thread, messages: [...thread.messages, newMessage] }
+                    : thread
+            ),
+        }));
+
         try {
-            const newMessage: Message = {
-                id: uuid(),
-                sender: 'user',
-                content,
-                timestamp: new Date().toISOString(),
-            };
-            // Update local state immediately with user message
-            set(state => ({
-                ...state,
-                threads: state.threads.map(thread =>
-                    thread.id === threadId
-                        ? { ...thread, messages: [...thread.messages, newMessage] }
-                        : thread
-                ),
-            }));
-            // Send to backend
-            const response = await fetch(`${API_BASE_URL}/chat/${threadId}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: content }),
-            });
-            if (!response.ok) throw new Error('Failed to send message');
-            const { message: botResponse } = await response.json();
+            // API call
+            const response = await apiService.addMessage(threadId, content);
 
             // Add bot response
             const botMessage: Message = {
                 id: uuid(),
                 sender: 'bot',
-                content: botResponse,
+                content: response.message,
                 timestamp: new Date().toISOString(),
-            };
+            }
+
+
+
             set(state => ({
                 ...state,
                 threads: state.threads.map(thread =>
@@ -104,8 +121,20 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                 isLoading: false,
             }));
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            set(state => ({ ...state, error: errorMessage, isLoading: false }));
+            // Revert optimistic update on error
+            set(state => ({
+                ...state,
+                threads: state.threads.map(thread =>
+                    thread.id === threadId
+                        ? {
+                            ...thread,
+                            messages: thread.messages.filter(msg => msg.id !== newMessage.id)
+                        }
+                        : thread
+                ),
+                error: error instanceof Error ? error.message : 'Unknown error',
+                isLoading: false,
+            }));
             throw error;
         }
     },
@@ -115,11 +144,19 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
     getThreadHistory: async () => {
         set(state => ({ ...state, isLoading: true, error: null }));
         try {
-            const response = await fetch(`${API_BASE_URL}/chat`);
-            if (!response.ok) throw new Error('Failed to fetch thread history');
+            const threadsFromServer = await apiService.getThreads();
+            const transformedThreads = threadsFromServer.map(thread => ({
+                id: thread._id,
+                messages: thread.messages.map(message => ({
+                    id: uuid(),
+                    sender: message.sender,
+                    content: message.content,
+                    timestamp: message.timestamp,
+                })),
+                createdAt: thread.createdAt,
+            }));
 
-            const threads = await response.json();
-            set(state => ({ ...state, threads, isLoading: false }));
+            set(state => ({ ...state, threads: transformedThreads, isLoading: false }));
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             set(state => ({ ...state, error: errorMessage, isLoading: false }));

@@ -1,45 +1,25 @@
 import "./ChatThread.css";
 import React, { useEffect, useState } from "react";
-import { useParams, useLocation } from "react-router-dom";
-import { v4 as uuid } from "uuid";
-import { Message } from "../../../types/chat.types";
-import { apiService } from "../../../api/api";
+import { useParams } from "react-router-dom";
 import { PropagateLoader } from "react-spinners";
+import { useChatStore } from "../../../store/useChatStore";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
-  const location = useLocation();
-  const initialMessage = location.state?.initialMessage || "";
+  const { threads, isLoading, error, sendMessage, getThreadHistory } =
+    useChatStore();
 
-  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Get current thread
+  const currentThread = threads.find((thread) => thread.id === threadId);
+  console.log("Current thread:", currentThread);
+  console.log("Get thread history:", getThreadHistory);
+  console.log("threads:", threads);
 
   useEffect(() => {
-    const fetchThread = async () => {
-      setIsLoading(true);
-      try {
-        const thread = await apiService.getThread(threadId!);
-        setMessages(thread.messages.map((msg: any) => ({
-          ...msg,
-          id: msg.id || uuid(), // Ensure each message has an id
-        })));
-      } catch (error) {
-        setError("Failed to fetch thread");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (initialMessage && !messages.length) {
-      apiService.createEventFromText(initialMessage).then(() => {
-        fetchThread();
-      });
-    } else {
-      fetchThread();
-    }
-  }, [initialMessage, threadId]);
+    getThreadHistory();
+  }, [getThreadHistory]);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(event.target.value);
@@ -48,19 +28,11 @@ const ChatThread: React.FC = () => {
   const handleSendMessage = async () => {
     if (newMessage.trim() === "") return;
 
-    setIsLoading(true);
     try {
-      await apiService.addMessage(threadId!, newMessage);
-      const updatedThread = await apiService.getThread(threadId!);
-      setMessages(updatedThread.messages.map((msg: any) => ({
-        ...msg,
-        id: msg.id || uuid(), // Ensure each message has an id
-      })));
+      await sendMessage(newMessage, threadId!);
       setNewMessage("");
     } catch (error) {
-      setError("Failed to send message");
-    } finally {
-      setIsLoading(false);
+      console.error("Failed to send message:", error);
     }
   };
 
@@ -153,7 +125,7 @@ const ChatThread: React.FC = () => {
               <div className="header-icons"></div>
             </div>
             <div className="thread-messages">
-              {messages.map((message, index) => (
+              {currentThread?.messages.map((message, index) => (
                 <div
                   key={index}
                   className={`message-item ${
@@ -178,6 +150,7 @@ const ChatThread: React.FC = () => {
                 onClick={handleSendMessage}
               ></button>
             </div>
+            {error && <p className="error-message">Error: {error}</p>}
             <p className="disclaimer">
               Disclaimer: Oowldoo has the potential to generate incorrect
               information.

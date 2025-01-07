@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import "./ChatCompose.css";
 import { useNavigate } from "react-router-dom";
+import { useChatStore } from "../../../store/useChatStore";
 import { apiService } from "../../../api/api";
 
 interface Prompt {
@@ -45,6 +46,7 @@ const prompts: Prompt[] = [
 const ChatCompose: React.FC = () => {
   const navigate = useNavigate();
   const [inputText, setInputText] = useState<string>("");
+  const { createThread, isLoading, error } = useChatStore();
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
 
   const handlePromptClick = (promptId: string) => {
@@ -61,8 +63,8 @@ const ChatCompose: React.FC = () => {
       const eventResponse = await apiService.createEventFromText(inputText);
       console.log("Event created from text::", eventResponse);
 
-      const threadResponse = await apiService.createThread(inputText);
-      const { threadId } = threadResponse;
+      const threadId = await createThread(inputText);
+
       console.log("Thread created with ID:", threadId);
       navigate(`/chat/${threadId}`);
     } catch (error) {
@@ -128,6 +130,8 @@ const ChatCompose: React.FC = () => {
           <Send size={20} />
         </button>
       </form>
+      {isLoading && <p>Loading...</p>}
+      {error && <p>Error: {error}</p>}
     </div>
   );
 };
