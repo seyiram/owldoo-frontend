@@ -16,6 +16,22 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
             ...state, isLoading: true, error: null
         }));
         try {
+
+            // check calendar first
+            try {
+                await apiService.createEventFromText(initialMessage);
+            } catch (error: any) {
+                if (error.type === 'CONFLICT') {
+                    throw {
+                        type: 'CALENDAR_CONFLICT',
+                        error: error.error,
+                        suggestion: error.suggestion
+                    };
+                }
+                throw error;
+            }
+
+            // If  no calendar conflicts, create thread
             // optimistically add user message
             const tempThread: Thread = {
                 id: uuid(),
@@ -65,8 +81,10 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
 
 
             return threadId;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        } catch (error: any) {
+            const errorMessage = error.type === 'CALENDAR_CONFLICT'
+                ? { type: 'CALENDAR_CONFLICT', ...error }
+                : error instanceof Error ? error.message : 'Unknown error';
             set(state => ({ ...state, error: errorMessage, isLoading: false }));
             throw error;
         }
@@ -101,12 +119,22 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
             // API call
             const response = await apiService.addMessage(threadId, content);
 
+            let botResponse = response.message;
+
+            // Handle calendar conflicts
+            if (response.calendarError?.suggestion === 'CONFLICT') {
+                const suggestion = response.calendarError.suggestion ? new Date(response.calendarError.suggestion).toLocaleString() : 'no alternative found';
+
+                botResponse = `There's a scheduling conflict. ${response.calendarError.error}. Would you like to schedule it for ${suggestion} instead?`;
+            }
+
             // Add bot response
             const botMessage: Message = {
                 id: uuid(),
                 sender: 'bot',
-                content: response.message,
+                content: botResponse,
                 timestamp: new Date().toISOString(),
+                hasConflict: !!response.calendarError
             }
 
 

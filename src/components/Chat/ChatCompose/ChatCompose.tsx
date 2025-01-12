@@ -12,7 +12,7 @@ import {
 import "./ChatCompose.css";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "../../../store/useChatStore";
-import { apiService } from "../../../api/api";
+
 
 interface Prompt {
   id: string;
@@ -48,6 +48,11 @@ const ChatCompose: React.FC = () => {
   const [inputText, setInputText] = useState<string>("");
   const { createThread, isLoading, error } = useChatStore();
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+  const [isCalendarAuthPending, setIsCalendarAuthPending] = useState(false);
+  const [conflictError, setConflictError] = useState<{
+    error: string;
+    suggestion?: string;
+  } | null>(null);
 
   const handlePromptClick = (promptId: string) => {
     setSelectedPrompt(promptId);
@@ -60,15 +65,33 @@ const ChatCompose: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const eventResponse = await apiService.createEventFromText(inputText);
-      console.log("Event created from text::", eventResponse);
+      setIsCalendarAuthPending(true);
+      setConflictError(null);
 
       const threadId = await createThread(inputText);
 
       console.log("Thread created with ID:", threadId);
       navigate(`/chat/${threadId}`);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.type === "CALENDAR_CONFLICT") {
+        setConflictError({
+          error: error.error,
+          suggestion: error.suggestion,
+        });
+        return;
+      }
+
+      if (
+        error instanceof Error &&
+        error.message === "Calendar authentication required"
+      ) {
+        // Auth window is already opened by the ApiService
+        // wait for it to complete
+        return;
+      }
       console.error("Failed to create thread:", error);
+    } finally {
+      setIsCalendarAuthPending(false);
     }
 
     console.log("Submitted:", inputText);
@@ -132,6 +155,33 @@ const ChatCompose: React.FC = () => {
       </form>
       {isLoading && <p>Loading...</p>}
       {error && <p>Error: {error}</p>}
+      {conflictError && (
+        <div className="conflict-alert">
+          <p>{conflictError.error}</p>
+          {conflictError.suggestion && (
+            <div className="conflict-actions">
+              <button
+                onClick={() => {
+                  setInputText(
+                    `Yes, schedule for ${new Date(
+                      conflictError.suggestion!
+                    ).toLocaleString()}`
+                  );
+                }}
+              >
+                Accept suggested time
+              </button>
+              <button
+                onClick={() => {
+                  setInputText("Find another time");
+                }}
+              >
+                Find another time
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

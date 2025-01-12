@@ -147,7 +147,7 @@
   position: absolute;
   right: 0.3rem;
   top: 71%;
-  transform: translateY(-50%);  
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -163,4 +163,30 @@
 
 .submit-button:hover {
   background-color: #7e22ce;
+}
+
+.conflict-alert {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background-color: #fff3f3;
+  border: 1px solid #ffcdd2;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.conflict-actions button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: white;
+  cursor: pointer;
+}
+
+.conflict-actions button:hover {
+  background: #f5f5f5;
 }

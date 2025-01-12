@@ -15,7 +15,6 @@ const ChatThread: React.FC = () => {
   // Get current thread
   const currentThread = threads.find((thread) => thread.id === threadId);
   console.log("Current thread:", currentThread);
-  console.log("Get thread history:", getThreadHistory);
   console.log("threads:", threads);
 
   useEffect(() => {
@@ -121,7 +120,19 @@ const ChatThread: React.FC = () => {
                     message.sender === "user" ? "user-message" : "bot-message"
                   }`}
                 >
-                  <div className="message-content">{message.content}</div>
+                  <div className="message-content">
+                    {message.content}
+                    {message.hasConflict && (
+                      <div className="conflict-actions">
+                        <button onClick={() => console.log("Resolve conflict")}>
+                          Accept suggestion
+                        </button>
+                        <button onClick={() => console.log("Ignore conflict")}>
+                          Find another time
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <span className="message-timestamp">{message.timestamp}</span>
                 </div>
               ))}
