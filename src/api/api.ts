@@ -112,16 +112,29 @@ class ApiService {
     }
 
     // Calendar endpoints
-    async createEventFromText(command: string) {
+
+
+    async executeCalendarCommand(command: string) {
         try {
-            const response = await this.request<{ status: number; json: () => Promise<ConflictResponse> }>(CALENDAR_ROUTES.createFromText, {
+            const response = await this.request<{
+                status: number;
+                response: {
+                    error?: string;
+                    suggestion?: Date;
+                    confirmation?: string;
+                    event?: any;
+                }
+            }>(CALENDAR_ROUTES.command, {
                 method: 'POST',
                 body: JSON.stringify({ command })
             });
 
             if (response.status === 409) {
-                const conflictData = await response.json();
-                throw { type: 'CONFLICT', ...conflictData };
+                throw {
+                    type: 'CALENDAR_CONFLICT',
+                    error: response.response.error,
+                    suggestion: response.response.suggestion
+                };
             }
 
             return response;
@@ -130,12 +143,6 @@ class ApiService {
         }
     }
 
-    async createEvent(event: Event) {
-        return this.request<Event>(CALENDAR_ROUTES.events, {
-            method: 'POST',
-            body: JSON.stringify(event)
-        });
-    }
 
     async getEvents(startDate?: Date, endDate?: Date) {
         const params = new URLSearchParams();
@@ -161,24 +168,6 @@ class ApiService {
         return this.request(`${CALENDAR_ROUTES.event}/${eventId}`, {
             method: 'DELETE'
         });
-    }
-
-    async checkAvailability(startTime: Date, endTime: Date) {
-        const params = new URLSearchParams({
-            startTime: startTime.toISOString(),
-            endTime: endTime.toISOString()
-        });
-
-        return this.request<{ available: boolean }>(`${CALENDAR_ROUTES.availability}?${params}`);
-    }
-
-    async suggestAlternativeTime(startTime: Date, duration: number) {
-        const params = new URLSearchParams({
-            startTime: startTime.toISOString(),
-            duration: duration.toString()
-        });
-
-        return this.request<{ suggestion: Date | null }>(`${CALENDAR_ROUTES.suggestTime}?${params}`);
     }
 
 

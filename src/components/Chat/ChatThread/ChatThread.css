@@ -283,3 +283,40 @@
 .conflict-actions button:hover {
   background: #f5f5f5;
 }
+
+.calendar-query-result {
+  background: rgba(147, 51, 234, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.query-time {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #6b21a8;
+}
+
+.event-item {
+  border-left: 2px solid #9333ea;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: white;
+  border-radius: 4px;
+}
+
+.event-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.event-time {
+  font-size: 0.9em;
+  color: #666;
+}
+
+.event-location {
+  font-size: 0.9em;
+  color: #666;
+  margin-top: 4px;
+}

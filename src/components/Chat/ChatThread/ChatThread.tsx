@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { PropagateLoader } from "react-spinners";
 import { useChatStore } from "../../../store/useChatStore";
+import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
@@ -39,6 +40,7 @@ const ChatThread: React.FC = () => {
   const handleShowMore = () => {
     setVisibleThreads((prev) => prev + 5);
   };
+
 
   return (
     <div className="thread-interface">
@@ -121,7 +123,9 @@ const ChatThread: React.FC = () => {
                   }`}
                 >
                   <div className="message-content">
-                    {message.content}
+                    {message.sender === "bot"
+                      ? formatCalendarResponse(message.content)
+                      : message.content}
                     {message.hasConflict && (
                       <div className="conflict-actions">
                         <button onClick={() => console.log("Resolve conflict")}>
