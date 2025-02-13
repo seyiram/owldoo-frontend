@@ -70,17 +70,18 @@ class ApiService {
         }
     }
 
-    private async initiateCalendarAuth() {
+     async initiateCalendarAuth() {
         try {
             const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authUrl}`);
-            const { url } = await response.json();
+            const data = await response.json();
 
             // Open auth window
             this.calendarAuthWindow = window.open(
-                url,
+                data.url,
                 'CalendarAuth',
                 'width=600,height=600'
             );
+            return data;
         } catch (error) {
             console.error('Failed to initiate calendar auth:', error);
             throw new Error('Failed to authenticate with calendar');

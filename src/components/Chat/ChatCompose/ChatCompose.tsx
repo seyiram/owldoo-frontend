@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   RefreshCw,
   User,
@@ -12,7 +12,7 @@ import {
 import "./ChatCompose.css";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "../../../store/useChatStore";
-
+import { apiService } from "../../../api/api";
 
 interface Prompt {
   id: string;
@@ -53,6 +53,58 @@ const ChatCompose: React.FC = () => {
     error: string;
     suggestion?: string;
   } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      setIsCheckingAuth(true);
+      const status = await apiService.checkCalendarAuth();
+      setIsAuthenticated(status);
+    } catch (error) {
+      console.error("Error checking authentication status:", error);
+    } finally {
+      setIsCheckingAuth(false);
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    try {
+      const { url } = await apiService.initiateCalendarAuth();
+      // Open the auth window
+      window.open(url, "CalendarAuth", "width=600,height=600");
+      // Listen for auth completion
+      window.addEventListener("message", async (event) => {
+        if (event.data.type === "CALENDAR_AUTH_SUCCESS") {
+          await checkAuthStatus();
+        }
+      });
+    } catch (error) {
+      console.error("Failed to initiate auth:", error);
+    }
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="auth-loading">Checking authentication status...</div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="auth-container">
+        <h1>Welcome to Owldoo</h1>
+        <p>To get started, please connect your Google Calendar</p>
+        <button className="google-auth-button" onClick={handleGoogleAuth}>
+          Connect Google Calendar
+        </button>
+      </div>
+    );
+  }
 
   const handlePromptClick = (promptId: string) => {
     setSelectedPrompt(promptId);

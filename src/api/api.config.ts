@@ -4,7 +4,7 @@ export const API_BASE_URL = 'http://localhost:3000/api';
 export const CALENDAR_ROUTES = {
     // Auth routes
     authUrl: '/calendar/auth/url',
-    authStatus: 'calendar/auth/status',
+    authStatus: '/calendar/auth/status',
     authCallback: '/calendar/auth/callback',
 
     // Main command endpoint
