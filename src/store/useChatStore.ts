@@ -95,7 +95,7 @@
                 throw new Error('Thread not found');
             }
 
-            set(state => ({ ...state, isLoading: true, error: null }));
+            // set(state => ({ ...state, isLoading: true, error: null }));
 
             // Create optimistic message
             const newMessage: Message = {
@@ -108,6 +108,7 @@
             // Update local state immediately with user message
             set(state => ({
                 ...state,
+                error: null,
                 threads: state.threads.map(thread =>
                     thread.id === threadId
                         ? { ...thread, messages: [...thread.messages, newMessage] }

@@ -1,6 +1,7 @@
 import "./ChatThread.css";
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { Send } from "lucide-react";
 import { PropagateLoader } from "react-spinners";
 import { useChatStore } from "../../../store/useChatStore";
 import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
@@ -8,25 +9,45 @@ import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
   const [visibleThreads, setVisibleThreads] = useState(10);
-  const { threads, isLoading, error, sendMessage, getThreadHistory } =
-    useChatStore();
+  // const { threads, isLoading, error, sendMessage, getThreadHistory } =
+  // useChatStore();
+  const navigate = useNavigate();
+
+  const threads = useChatStore((state) => state.threads);
+  const isLoading = useChatStore((state) => state.isLoading);
+  const error = useChatStore((state) => state.error);
+  const sendMessage = useChatStore((state) => state.sendMessage);
+  const getThreadHistory = useChatStore((state) => state.getThreadHistory);
 
   const [newMessage, setNewMessage] = useState("");
 
+  const handleNewChat = React.useCallback(() => {
+    navigate("/");
+  }, [navigate]);
+
   // Get current thread
-  const currentThread = threads.find((thread) => thread.id === threadId);
+  const currentThread = React.useMemo(
+    () => threads.find((thread) => thread.id === threadId),
+    [threadId, threads]
+  );
+
   console.log("Current thread:", currentThread);
   console.log("threads:", threads);
 
   useEffect(() => {
-    getThreadHistory();
-  }, [getThreadHistory]);
+    if (!currentThread) {
+      getThreadHistory();
+    }
+  }, [threadId, currentThread, getThreadHistory]);
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setNewMessage(event.target.value);
-  };
+  const handleInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setNewMessage(event.target.value);
+    },
+    []
+  );
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = React.useCallback(async () => {
     if (newMessage.trim() === "") return;
 
     try {
@@ -35,12 +56,21 @@ const ChatThread: React.FC = () => {
     } catch (error) {
       console.error("Failed to send message:", error);
     }
-  };
+  }, [newMessage, sendMessage, threadId]);
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleSendMessage();
+      }
+    },
+    [handleSendMessage]
+  );
 
   const handleShowMore = () => {
     setVisibleThreads((prev) => prev + 5);
   };
-
 
   return (
     <div className="thread-interface">
@@ -52,7 +82,9 @@ const ChatThread: React.FC = () => {
         <>
           <aside className="thread-sidebar">
             <div className="thread-sidebar-header">
-              <button className="new-chat-button">+ New Chat</button>
+              <button className="new-chat-button" onClick={handleNewChat}>
+                + New Chat
+              </button>
             </div>
             <div className="search-bar">
               <input type="text" placeholder="Search" />
@@ -147,12 +179,16 @@ const ChatThread: React.FC = () => {
                 placeholder="Enter a prompt here....."
                 value={newMessage}
                 onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
                 className="message-input"
               />
               <button
+                type="submit"
                 className="send-button"
                 onClick={handleSendMessage}
-              ></button>
+              >
+                <Send size={20} />
+              </button>
             </div>
             {error && <p className="error-message">Error: {error}</p>}
             <p className="disclaimer">

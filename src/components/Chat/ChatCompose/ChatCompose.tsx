@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 import {
   RefreshCw,
-  User,
-  Mail,
-  FileText,
-  SlidersHorizontal,
   Paperclip,
   Image as ImageIcon,
   Send,
+  Calendar,
+  Clock,
+  Search,
+  Repeat,
 } from "lucide-react";
 import "./ChatCompose.css";
 import { useNavigate } from "react-router-dom";
@@ -22,31 +22,34 @@ interface Prompt {
 
 const prompts: Prompt[] = [
   {
-    id: "todo",
-    title: "Write a to-do list for a personal project or task",
-    icon: <User size={20} />,
+    id: "schedule",
+    title: "Schedule a meeting with John tomorrow at 3pm",
+    icon: <Calendar size={20} />,
   },
   {
-    id: "email",
-    title: "Generate an email to reply to a job offer",
-    icon: <Mail size={20} />,
+    id: "reschedule",
+    title: "Move my 2pm meeting to 4pm today",
+    icon: <Clock size={20} />,
   },
   {
-    id: "summary",
-    title: "Summarise this article or text for me in one paragraph",
-    icon: <FileText size={20} />,
+    id: "availability",
+    title: "Check my availability for tomorrow afternoon",
+    icon: <Search size={20} />,
   },
   {
-    id: "ai",
-    title: "How does AI work in a technical capacity",
-    icon: <SlidersHorizontal size={20} />,
+    id: "recurring",
+    title: "Set up a weekly team sync every Monday at 10am",
+    icon: <Repeat size={20} />,
   },
 ];
 
 const ChatCompose: React.FC = () => {
   const navigate = useNavigate();
   const [inputText, setInputText] = useState<string>("");
-  const { createThread, isLoading, error } = useChatStore();
+  // const { createThread, isLoading, error } = useChatStore();
+  const createThread = useChatStore((state) => state.createThread);
+  const isLoading = useChatStore((state) => state.isLoading);
+  const error = useChatStore((state) => state.error);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
   const [isCalendarAuthPending, setIsCalendarAuthPending] = useState(false);
   const [conflictError, setConflictError] = useState<{
@@ -88,32 +91,6 @@ const ChatCompose: React.FC = () => {
     }
   };
 
-  if (isCheckingAuth) {
-    return (
-      <div className="auth-loading">Checking authentication status...</div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="auth-container">
-        <h1>Welcome to Owldoo</h1>
-        <p>To get started, please connect your Google Calendar</p>
-        <button className="google-auth-button" onClick={handleGoogleAuth}>
-          Connect Google Calendar
-        </button>
-      </div>
-    );
-  }
-
-  const handlePromptClick = (promptId: string) => {
-    setSelectedPrompt(promptId);
-    const prompt = prompts.find((p) => p.id === promptId);
-    if (prompt) {
-      setInputText(prompt.title);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -148,6 +125,42 @@ const ChatCompose: React.FC = () => {
 
     console.log("Submitted:", inputText);
   };
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleSubmit(event);
+      }
+    },
+    [handleSubmit]
+  );
+
+  const handlePromptClick = (promptId: string) => {
+    setSelectedPrompt(promptId);
+    const prompt = prompts.find((p) => p.id === promptId);
+    if (prompt) {
+      setInputText(prompt.title);
+    }
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="auth-loading">Checking authentication status...</div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="auth-container">
+        <h1>Welcome to Owldoo</h1>
+        <p>To get started, please connect your Google Calendar</p>
+        <button className="google-auth-button" onClick={handleGoogleAuth}>
+          Connect Google Calendar
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="compose-container">
@@ -188,10 +201,11 @@ const ChatCompose: React.FC = () => {
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Ask whatever you want...."
           className="compose-input"
         />
-        <div className="compose-input-actions">
+        {/* <div className="compose-input-actions">
           <button type="button" className="compose-action-button">
             <Paperclip size={20} />
             Add Attachment
@@ -200,7 +214,7 @@ const ChatCompose: React.FC = () => {
             <ImageIcon size={20} />
             Use Image
           </button>
-        </div>
+        </div> */}
         <button type="submit" className="compose-submit-button">
           <Send size={20} />
         </button>
