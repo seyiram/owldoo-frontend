@@ -58,6 +58,7 @@ const ChatCompose: React.FC = () => {
   } | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
+  const [userName, setUserName] = useState<string>("");
 
   useEffect(() => {
     checkAuthStatus();
@@ -68,6 +69,11 @@ const ChatCompose: React.FC = () => {
       setIsCheckingAuth(true);
       const status = await apiService.checkCalendarAuth();
       setIsAuthenticated(status);
+      if (status) {
+        const profile = await apiService.getUserProfile();
+        console.log("Profile received:", profile);
+        setUserName(profile.name);
+      }
     } catch (error) {
       console.error("Error checking authentication status:", error);
     } finally {
@@ -166,11 +172,13 @@ const ChatCompose: React.FC = () => {
     <div className="compose-container">
       <header className="compose-header">
         <h1>
-          Hi there, <span className="compose-name">John</span>
+          Hi there,{" "}
+          <span className="compose-name">{userName ? ` ${userName}` : ""}</span>
         </h1>
-        <h2>What would like to know?</h2>
+        <h2>How can I help you with your calendar?</h2>
         <p className="compose-subtitle">
-          Use one of the most common prompts below or use your own to begin
+          Schedule meetings, check availability, or manage your calendar using
+          the prompts below
         </p>
       </header>
 

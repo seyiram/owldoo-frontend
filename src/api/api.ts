@@ -70,7 +70,7 @@ class ApiService {
         }
     }
 
-     async initiateCalendarAuth() {
+    async initiateCalendarAuth() {
         try {
             const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authUrl}`);
             const data = await response.json();
@@ -111,6 +111,13 @@ class ApiService {
             return false;
         }
     }
+
+    async getUserProfile() {
+        return this.request<{ name: string; email: string | null }>(CALENDAR_ROUTES.userProfile, {
+            method: 'GET'
+        });
+    }
+
 
     // Calendar endpoints
 

@@ -6,6 +6,7 @@ export const CALENDAR_ROUTES = {
     authUrl: '/calendar/auth/url',
     authStatus: '/calendar/auth/status',
     authCallback: '/calendar/auth/callback',
+    userProfile: '/calendar/profile',
 
     // Main command endpoint
     command: '/calendar/command',

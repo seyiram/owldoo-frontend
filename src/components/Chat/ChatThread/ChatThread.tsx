@@ -35,10 +35,8 @@ const ChatThread: React.FC = () => {
   console.log("threads:", threads);
 
   useEffect(() => {
-    if (!currentThread) {
-      getThreadHistory();
-    }
-  }, [threadId, currentThread, getThreadHistory]);
+    getThreadHistory();
+  }, [getThreadHistory]);
 
   const handleInputChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,16 +107,23 @@ const ChatThread: React.FC = () => {
               </ul> */}
               <div className="history-list">
                 <ul>
-                  {threads.slice(0, visibleThreads).map((thread) => (
-                    <li key={thread.id}>
-                      <a href={`/chat/${thread.id}`}>
-                        {thread.messages[0].content}
-                        <span className="timestamp">
-                          {thread.messages[0].timestamp}
-                        </span>
-                      </a>
-                    </li>
-                  ))}
+                  {threads
+                    .sort(
+                      (a, b) =>
+                        new Date(b.createdAt).getTime() -
+                        new Date(a.createdAt).getTime()
+                    )
+                    .slice(0, visibleThreads)
+                    .map((thread) => (
+                      <li key={thread.id}>
+                        <a href={`/chat/${thread.id}`}>
+                          {thread.messages[0].content}
+                          <span className="timestamp">
+                            {thread.messages[0].timestamp}
+                          </span>
+                        </a>
+                      </li>
+                    ))}
                 </ul>
                 {threads.length > visibleThreads && (
                   <button className="show-more" onClick={handleShowMore}>
