@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200px" height="200px" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Owldoo Logo</title>
+    <g id="Owldoo-Logo" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <circle id="Background" fill="#F3F0FF" cx="100" cy="100" r="90"></circle>
+        <!-- Owl Body -->
+        <ellipse id="Owl-Body" fill="#9333EA" cx="100" cy="105" rx="50" ry="55"></ellipse>
+        
+        <!-- Owl Eyes -->
+        <circle id="Left-Eye-Background" fill="white" cx="80" cy="90" r="18"></circle>
+        <circle id="Right-Eye-Background" fill="white" cx="120" cy="90" r="18"></circle>
+        
+        <circle id="Left-Eye-Pupil" fill="#2D3748" cx="80" cy="90" r="10"></circle>
+        <circle id="Right-Eye-Pupil" fill="#2D3748" cx="120" cy="90" r="10"></circle>
+        
+        <circle id="Left-Eye-Highlight" fill="white" cx="83" cy="87" r="3"></circle>
+        <circle id="Right-Eye-Highlight" fill="white" cx="123" cy="87" r="3"></circle>
+        
+        <!-- Owl Beak -->
+        <path d="M100,105 L90,115 L110,115 Z" id="Beak" fill="#F59E0B"></path>
+        
+        <!-- Owl Ears/Horns -->
+        <path d="M70,75 L80,50 L90,75 Z" id="Left-Ear" fill="#9333EA"></path>
+        <path d="M110,75 L120,50 L130,75 Z" id="Right-Ear" fill="#9333EA"></path>
+        
+        <!-- Calendar Elements -->
+        <rect id="Calendar-Body" fill="white" opacity="0.9" x="70" y="125" width="60" height="40" rx="4"></rect>
+        <rect id="Calendar-Header" fill="#9333EA" x="70" y="125" width="60" height="10" rx="4"></rect>
+        
+        <!-- Calendar Details -->
+        <rect id="Day-1" fill="#9333EA" opacity="0.3" x="75" y="140" width="10" height="10" rx="2"></rect>
+        <rect id="Day-2" fill="#9333EA" opacity="0.5" x="90" y="140" width="10" height="10" rx="2"></rect>
+        <rect id="Day-3" fill="#9333EA" opacity="0.7" x="105" y="140" width="10" height="10" rx="2"></rect>
+        <rect id="Day-4" fill="#9333EA" opacity="0.3" x="75" y="155" width="10" height="5" rx="1"></rect>
+        <rect id="Day-5" fill="#9333EA" opacity="0.5" x="90" y="155" width="10" height="5" rx="1"></rect>
+        <rect id="Day-6" fill="#9333EA" opacity="0.7" x="105" y="155" width="10" height="5" rx="1"></rect>
+    </g>
+</svg>

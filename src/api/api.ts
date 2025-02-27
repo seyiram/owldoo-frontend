@@ -15,13 +15,30 @@ class ApiService {
     }
 
     private handleAuthMessage = (event: MessageEvent) => {
+        console.log("Auth message received:", event.data);
+
+        // Accept messages from both the API domain and the frontend domain
+        const allowedOrigins = [window.location.origin, 'http://localhost:3000', 'http://localhost:5173'];
+        if (!allowedOrigins.includes(event.origin)) {
+            console.log("Ignoring message from different origin:", event.origin);
+            return;
+        }
+
         if (event.data.type === 'CALENDAR_AUTH_SUCCESS') {
+            console.log("Auth success in handleAuthMessage, storing tokens");
+            localStorage.setItem('googleCalendarTokens', JSON.stringify(event.data.tokens));
             if (this.calendarAuthWindow) {
                 this.calendarAuthWindow.close();
                 this.calendarAuthWindow = null;
             }
             // Retry any pending requests
             this.retryPendingRequests();
+        } else if (event.data.type === 'CALENDAR_AUTH_ERROR') {
+            console.error("Auth error in handleAuthMessage:", event.data.error);
+            if (this.calendarAuthWindow) {
+                this.calendarAuthWindow.close();
+                this.calendarAuthWindow = null;
+            }
         }
     };
 
@@ -62,7 +79,7 @@ class ApiService {
 
             return response.json();
         } catch (error) {
-            if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
+            if (error instanceof Error && error.message === 'AUTH_REQUIRED`q    ') {
                 await this.initiateCalendarAuth();
                 throw new Error('Calendar authentication required');
             }
@@ -70,21 +87,99 @@ class ApiService {
         }
     }
 
-    async initiateCalendarAuth() {
+    async initiateCalendarAuth(): Promise<{ url: string }> {
         try {
-            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authUrl}`);
-            const data = await response.json();
+            // Close any existing auth window
+            if (this.calendarAuthWindow && !this.calendarAuthWindow.closed) {
+                this.calendarAuthWindow.close();
+            }
 
-            // Open auth window
+            console.log("Requesting auth URL from:", `${this.baseURL}${CALENDAR_ROUTES.authUrl}`);
+
+            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authUrl}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // Check HTTP status
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Auth URL response error:", response.status, errorText);
+                throw new Error(`Failed to get auth URL: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log("Auth URL received:", data.url);
+
+            // Open auth window with specific features
             this.calendarAuthWindow = window.open(
                 data.url,
                 'CalendarAuth',
-                'width=600,height=600'
+                'width=600,height=600,resizable=yes,scrollbars=yes,status=yes'
             );
-            return data;
+
+            if (!this.calendarAuthWindow) {
+                throw new Error('Popup blocked. Please allow popups for this site.');
+            }
+
+           // Promise that resolves when auth is complete
+        return new Promise((resolve, reject) => {
+            // To increase timeout to 5 minutes (300000ms)
+            const authTimeout = setTimeout(() => {
+                // check auth status one more time
+                this.checkCalendarAuth().then(isAuthenticated => {
+                    if (isAuthenticated) {
+                        console.log("Auth timeout reached but user is authenticated");
+                        resolve(data);
+                    } else {
+                        console.error("Authentication timed out and user is not authenticated");
+                        reject(new Error('Authentication timed out'));
+                    }
+                }).catch(err => {
+                    console.error("Error checking auth status after timeout:", err);
+                    reject(new Error('Authentication timed out'));
+                });
+            }, 300000); // 30 seconds for faster feedback
+
+                const messageHandler = (event: MessageEvent) => {
+                    console.log("Auth message received:", event.data);
+                    // Accept messages from both the API domain and the frontend domain
+                    const allowedOrigins = [window.location.origin, 'http://localhost:3000', 'http://localhost:5173'];
+                    if (!allowedOrigins.includes(event.origin)) {
+                        console.log("Ignoring message from different origin:", event.origin);
+                        return;
+                    }
+
+                    if (event.data.type === 'CALENDAR_AUTH_SUCCESS') {
+                        clearTimeout(authTimeout);
+                        window.removeEventListener('message', messageHandler);
+                        console.log("Auth success, storing tokens");
+                        localStorage.setItem('googleCalendarTokens', JSON.stringify(event.data.tokens));
+                        if (this.calendarAuthWindow) {
+                            this.calendarAuthWindow.close();
+                            this.calendarAuthWindow = null;
+                        }
+                        this.retryPendingRequests();
+                        resolve(data);
+                    } else if (event.data.type === 'CALENDAR_AUTH_ERROR') {
+                        clearTimeout(authTimeout);
+                        window.removeEventListener('message', messageHandler);
+                        console.error("Auth error:", event.data.error);
+                        if (this.calendarAuthWindow) {
+                            this.calendarAuthWindow.close();
+                            this.calendarAuthWindow = null;
+                        }
+                        reject(new Error(event.data.error || 'Authentication failed'));
+                    }
+                };
+
+                window.addEventListener('message', messageHandler);
+            });
         } catch (error) {
             console.error('Failed to initiate calendar auth:', error);
-            throw new Error('Failed to authenticate with calendar');
+            throw error;
         }
     }
 
@@ -201,6 +296,32 @@ class ApiService {
     async getThread(threadId: string) {
         return this.request<Thread>(CHAT_ROUTES.thread(threadId));
     }
+
+    async logout(): Promise<void> {
+        try {
+            await fetch(`${this.baseURL}${CALENDAR_ROUTES.logout}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // Clear local storage tokens
+            localStorage.removeItem('googleCalendarTokens');
+            localStorage.removeItem('token');
+
+            // Reset auth state
+            this.calendarAuthWindow = null;
+            this.pendingRequests = [];
+
+            console.log('Logged out successfully');
+        } catch (error) {
+            console.error('Logout failed:', error);
+            throw error;
+        }
+    }
+
+
 }
 
 export const apiService = new ApiService();
