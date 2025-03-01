@@ -15,6 +15,8 @@ import { useNavigate } from "react-router-dom";
 import { useChatStore } from "../../../store/useChatStore";
 import { apiService } from "../../../api/api";
 import owldooLogo from "../../../assets/owldoo-logo-2.svg";
+import { useAuthStore } from "../../../store/useAuthStore";
+import { AuthState } from "../../../types/auth.types";
 
 interface Prompt {
   id: string;
@@ -58,49 +60,21 @@ const ChatCompose: React.FC = () => {
     error: string;
     suggestion?: string;
   } | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
-  const [userName, setUserName] = useState<string>("");
+
+  const {
+    isAuthenticated,
+    isCheckingAuth,
+    userName,
+    checkAuthStatus,
+    logout,
+    setUserName
+  } = useAuthStore();
 
   useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
-  // This effect will run whenever the authentication state changes
-  useEffect(() => {
-    // When authentication state changes to true, force a re-render
-    if (isAuthenticated && !isCheckingAuth) {
-      console.log("Authentication detected, updating UI...");
-      // Force a complete UI update after auth state change
-      const timer = setTimeout(() => {
-        // This is more reliable than the previous approach
-        setInputText((prev) => prev + " "); // Add a space to force state change
-        setTimeout(() => setInputText((prev) => prev.trim()), 10); // Then remove it
-      }, 50);
-      
-      return () => clearTimeout(timer);
+    if (!isAuthenticated && !isCheckingAuth) {
+      checkAuthStatus();
     }
   }, [isAuthenticated, isCheckingAuth]);
-
-  const checkAuthStatus = async () => {
-    try {
-      console.log("Checking authentication status...");
-      setIsCheckingAuth(true);
-      const status = await apiService.checkCalendarAuth();
-      console.log("Auth status result:", status);
-      setIsAuthenticated(status);
-      if (status) {
-        console.log("User is authenticated. Fetching profile...");
-        const profile = await apiService.getUserProfile();
-        console.log("Profile received:", profile);
-        setUserName(profile.name);
-      }
-    } catch (error) {
-      console.error("Error checking authentication status:", error);
-    } finally {
-      setIsCheckingAuth(false);
-    }
-  };
 
   const handleGoogleAuth = async () => {
     try {
@@ -119,8 +93,6 @@ const ChatCompose: React.FC = () => {
           
           // Add a small delay before updating state to ensure everything is ready
           setTimeout(() => {
-            setIsAuthenticated(true); // update auth state
-            setIsCheckingAuth(false); // done checking auth status
             checkAuthStatus(); // check for full profile info
           }, 100);
         } else if (event.data.type === "CALENDAR_AUTH_ERROR") {
@@ -150,18 +122,7 @@ const ChatCompose: React.FC = () => {
               
               // Add a small delay before updating state to ensure everything is ready
               setTimeout(() => {
-                setIsAuthenticated(true);
-                setIsCheckingAuth(false);
-
-                // Get user profile after successful authentication
-                apiService.getUserProfile()
-                  .then(profile => {
-                    setUserName(profile.name);
-                    console.log("Profile fetched successfully:", profile);
-                  })
-                  .catch(profileError => {
-                    console.error("Error fetching profile:", profileError);
-                  });
+                checkAuthStatus();
               }, 100);
             } else if (attempts >= maxAttempts) {
               console.log("Auth polling max attempts reached");
@@ -186,9 +147,17 @@ const ChatCompose: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    let isAuth = false; // Define isAuth outside the try block
     try {
-      setIsCalendarAuthPending(true);
       setConflictError(null);
+
+      // Check authentication status before creating a thread
+      isAuth = await apiService.checkCalendarAuth();
+      if (!isAuth) {
+        setIsCalendarAuthPending(true);
+        await handleGoogleAuth();
+        return;
+      }
 
       const threadId = await createThread(inputText);
 
@@ -213,7 +182,10 @@ const ChatCompose: React.FC = () => {
       }
       console.error("Failed to create thread:", error);
     } finally {
-      setIsCalendarAuthPending(false);
+      // Ensure this is only set to false if it was set to true earlier
+      if (!isAuth) {
+        setIsCalendarAuthPending(false);
+      }
     }
 
     console.log("Submitted:", inputText);
@@ -273,13 +245,7 @@ const ChatCompose: React.FC = () => {
   }
 
   const handleLogout = async () => {
-    try {
-      await apiService.logout();
-      setIsAuthenticated(false);
-      setUserName("");
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
+    await logout();
   };
 
   return (

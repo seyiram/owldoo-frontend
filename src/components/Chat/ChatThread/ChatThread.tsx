@@ -5,12 +5,14 @@ import { Send } from "lucide-react";
 import { PropagateLoader } from "react-spinners";
 import { useChatStore } from "../../../store/useChatStore";
 import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
+import { apiService } from "../../../api/api";
+import { useAuthStore } from "../../../store/useAuthStore";
+import { AuthState } from "../../../types/auth.types";
+import { formatDateTime } from '../../../utils/dateUtils';
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
   const [visibleThreads, setVisibleThreads] = useState(10);
-  // const { threads, isLoading, error, sendMessage, getThreadHistory } =
-  // useChatStore();
   const navigate = useNavigate();
 
   const threads = useChatStore((state) => state.threads);
@@ -20,10 +22,16 @@ const ChatThread: React.FC = () => {
   const getThreadHistory = useChatStore((state) => state.getThreadHistory);
 
   const [newMessage, setNewMessage] = useState("");
+  const isAuthenticated = useAuthStore((state: AuthState) => state.isAuthenticated);
+  const isCheckingAuth = useAuthStore((state: AuthState) => state.isCheckingAuth);
 
   const handleNewChat = React.useCallback(() => {
-    navigate("/");
-  }, [navigate]);
+    if (!isAuthenticated) {
+      apiService.initiateCalendarAuth();
+    } else {
+      navigate("/");
+    }
+  }, [navigate, isAuthenticated]);
 
   // Get current thread
   const currentThread = React.useMemo(
@@ -72,9 +80,9 @@ const ChatThread: React.FC = () => {
 
   return (
     <div className="thread-interface">
-      {isLoading ? (
+      {isLoading || isCheckingAuth ? (
         <div className="loader-container">
-          <PropagateLoader color="#9333ea" loading={isLoading} />
+          <PropagateLoader color="#9333ea" loading={isLoading || isCheckingAuth} />
         </div>
       ) : (
         <>
@@ -88,23 +96,6 @@ const ChatThread: React.FC = () => {
               <input type="text" placeholder="Search" />
             </div>
             <nav className="sidebar-nav">
-              {/* <ul>
-                <li className="nav-item folder">
-                  <span className="nav-item-icon"></span>
-                  <span className="nav-item-text">Folder</span>
-                  <span className="nav-item-badge">8</span>
-                </li>
-                <li className="nav-item favorite">
-                  <span className="nav-item-icon"></span>
-                  <span className="nav-item-text">Favorite</span>
-                  <span className="nav-item-badge">15</span>
-                </li>
-                <li className="nav-item archive">
-                  <span className="nav-item-icon"></span>
-                  <span className="nav-item-text">Archive</span>
-                  <span className="nav-item-badge">36</span>
-                </li>
-              </ul> */}
               <div className="history-list">
                 <ul>
                   {threads
@@ -117,10 +108,15 @@ const ChatThread: React.FC = () => {
                     .map((thread) => (
                       <li key={thread.id}>
                         <a href={`/chat/${thread.id}`}>
-                          {thread.messages[0].content}
-                          <span className="timestamp">
-                            {thread.messages[0].timestamp}
-                          </span>
+                          <div className="thread-preview">
+                            <span className="thread-title">
+                              {thread.messages[0].content.slice(0, 40)}
+                              {thread.messages[0].content.length > 40 ? '...' : ''}
+                            </span>
+                            <span className="timestamp">
+                              {formatDateTime(thread.messages[0].timestamp)}
+                            </span>
+                          </div>
                         </a>
                       </li>
                     ))}

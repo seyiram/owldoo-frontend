@@ -1,5 +1,6 @@
-import { API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
+import { AGENT_ROUTES, API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
 import { Event, Thread, ConflictResponse } from "../types/api.types";
+import { AgentStats, AgentTask, Insight, Suggestion } from "../types/agent.types";
 
 
 
@@ -55,7 +56,8 @@ class ApiService {
         try {
             const response = await fetch(`${this.baseURL}${endpoint}`, {
                 ...options,
-                headers
+                headers,
+                credentials: 'include'
             });
 
             if (response.status === 401 && response.headers.get('X-Calendar-Auth-Required')) {
@@ -79,7 +81,7 @@ class ApiService {
 
             return response.json();
         } catch (error) {
-            if (error instanceof Error && error.message === 'AUTH_REQUIRED`q    ') {
+            if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
                 await this.initiateCalendarAuth();
                 throw new Error('Calendar authentication required');
             }
@@ -100,7 +102,8 @@ class ApiService {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                credentials: 'include'
             });
 
             // Check HTTP status
@@ -124,24 +127,24 @@ class ApiService {
                 throw new Error('Popup blocked. Please allow popups for this site.');
             }
 
-           // Promise that resolves when auth is complete
-        return new Promise((resolve, reject) => {
-            // To increase timeout to 5 minutes (300000ms)
-            const authTimeout = setTimeout(() => {
-                // check auth status one more time
-                this.checkCalendarAuth().then(isAuthenticated => {
-                    if (isAuthenticated) {
-                        console.log("Auth timeout reached but user is authenticated");
-                        resolve(data);
-                    } else {
-                        console.error("Authentication timed out and user is not authenticated");
+            // Promise that resolves when auth is complete
+            return new Promise((resolve, reject) => {
+                // To increase timeout to 5 minutes (300000ms)
+                const authTimeout = setTimeout(() => {
+                    // check auth status one more time
+                    this.checkCalendarAuth().then(isAuthenticated => {
+                        if (isAuthenticated) {
+                            console.log("Auth timeout reached but user is authenticated");
+                            resolve(data);
+                        } else {
+                            console.error("Authentication timed out and user is not authenticated");
+                            reject(new Error('Authentication timed out'));
+                        }
+                    }).catch(err => {
+                        console.error("Error checking auth status after timeout:", err);
                         reject(new Error('Authentication timed out'));
-                    }
-                }).catch(err => {
-                    console.error("Error checking auth status after timeout:", err);
-                    reject(new Error('Authentication timed out'));
-                });
-            }, 300000); // 30 seconds for faster feedback
+                    });
+                }, 300000); // 30 seconds for faster feedback
 
                 const messageHandler = (event: MessageEvent) => {
                     console.log("Auth message received:", event.data);
@@ -197,8 +200,15 @@ class ApiService {
     }
 
     async checkCalendarAuth(): Promise<boolean> {
+        const tokens = localStorage.getItem('googleCalendarTokens');
+        if (tokens) {
+            return true;
+        }
+
         try {
-            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authStatus}`);
+            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authStatus}`, {
+                credentials: 'include'
+            });
             const { isAuthenticated } = await response.json();
             return isAuthenticated;
         } catch (error) {
@@ -321,6 +331,30 @@ class ApiService {
         }
     }
 
+    /** Agent endpoints */
+
+    async getAgentStats() {
+        return this.request<AgentStats>(AGENT_ROUTES.stats);
+    }
+
+    async getAgentTasks() {
+        return this.request<AgentTask[]>(AGENT_ROUTES.tasks);
+    }
+
+    async getAgentInsights() {
+        return this.request<Insight[]>(AGENT_ROUTES.insights);
+    }
+
+    async getAgentSuggestions() {
+        return this.request<Suggestion[]>(AGENT_ROUTES.suggestions);
+    }
+
+    async updateAgentSuggestion(suggestionId: string, action: 'accept' | 'dismiss') {
+        return this.request(AGENT_ROUTES.suggestion(suggestionId), {
+            method: 'POST',
+            body: JSON.stringify({ action })
+        });
+    }
 
 }
 

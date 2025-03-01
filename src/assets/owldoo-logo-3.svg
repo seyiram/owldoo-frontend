@@ -1,6 +1,6 @@
 <!-- Add SVG title and description for accessibility -->
     <title>Owldoo Logo</title>
-    <desc>An interactive owl logo for Owldoo - a platform that represents wisdom on schedule. The owl has animated features and can express different moods when clicked.</desc>      <!-- Label annotations for interactive areas (with a11y attributes) -->
+        
       <g id="state-labels" opacity="0.5">
         <text x="50" y="25" text-anchor="middle" fill="#3498DB" font-size="6">Alert</text>
         <text x="80" y="25" text-anchor="middle" fill="#3498DB" font-size="6">Think</text>

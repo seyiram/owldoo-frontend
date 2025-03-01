@@ -1,5 +1,3 @@
-
-
 export const API_BASE_URL = 'http://localhost:3000/api';
 export const CALENDAR_ROUTES = {
     // Auth routes
@@ -17,8 +15,17 @@ export const CALENDAR_ROUTES = {
 };
 
 export const CHAT_ROUTES = {
-    createThread: '/chat',
-    threads: '/chat',
-    thread: (id: string) => `/chat/${id}`,
-    messages: (threadId: string) => `/chat/${threadId}/messages`
+    createThread: '/chat/threads',
+    threads: '/chat/threads',
+    thread: (id: string) => `/chat/threads/${id}`,
+    messages: (threadId: string) => `/chat/threads/${threadId}/messages`,
+    stream: (threadId: string) => `/chat/threads/${threadId}/stream`
+};
+
+export const AGENT_ROUTES = {
+    stats: '/agent/stats',
+    tasks: '/agent/tasks',
+    insights: '/agent/insights',
+    suggestions: '/agent/suggestions',
+    suggestion: (id: string) => `/agent/suggestions/${id}`
 };
