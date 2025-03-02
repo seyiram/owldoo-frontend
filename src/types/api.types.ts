@@ -24,3 +24,19 @@ export interface ConflictResponse {
     suggestion?: string;
     originalRequest?: any;
 }
+
+export interface Suggestion {
+  _id: string;
+  userId: string;
+  type: string;
+  title: string;
+  description: string;
+  action: {
+    type: string;
+    data: any;
+  };
+  status: 'pending' | 'accepted' | 'dismissed';
+  relevance: number;
+  expiresAt: string;
+  createdAt: string;
+}

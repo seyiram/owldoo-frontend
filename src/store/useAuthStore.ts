@@ -2,10 +2,11 @@ import { create } from 'zustand';
 import { AuthState } from '../types/auth.types';
 import { apiService } from '../api/api';
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
     isAuthenticated: localStorage.getItem('isAuthenticated') === 'true',
     isCheckingAuth: false,
     userName: localStorage.getItem('userName') || '',
+    lastChecked: 0, // Add this new state
     setIsAuthenticated: (isAuthenticated) => {
         localStorage.setItem('isAuthenticated', String(isAuthenticated));
         set({ isAuthenticated });
@@ -16,24 +17,38 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ userName });
     },
     checkAuthStatus: async () => {
+        const state = get();
+        const now = Date.now();
+        
+        // Don't check if already checking or if checked recently (within 5 seconds)
+        if (state.isCheckingAuth || (state.lastChecked && now - state.lastChecked < 5000)) {
+            console.log('Skipping auth check: already checking or checked recently');
+            return;
+        }
+
         try {
+            console.log('Starting auth check');
             set({ isCheckingAuth: true });
             const status = await apiService.checkCalendarAuth();
+            console.log('Auth check status:', status);
             
             if (status) {
                 const profile = await apiService.getUserProfile();
                 localStorage.setItem('isAuthenticated', 'true');
                 localStorage.setItem('userName', profile.name);
+                localStorage.setItem('lastChecked', now.toString());
                 set({ 
                     isAuthenticated: true,
-                    userName: profile.name
+                    userName: profile.name,
+                    lastChecked: now
                 });
             } else {
                 localStorage.removeItem('isAuthenticated');
                 localStorage.removeItem('userName');
                 set({ 
                     isAuthenticated: false,
-                    userName: ''
+                    userName: '',
+                    lastChecked: now
                 });
             }
         } catch (error) {

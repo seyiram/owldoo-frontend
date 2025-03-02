@@ -16,7 +16,7 @@ import { useChatStore } from "../../../store/useChatStore";
 import { apiService } from "../../../api/api";
 import owldooLogo from "../../../assets/owldoo-logo-2.svg";
 import { useAuthStore } from "../../../store/useAuthStore";
-import { AuthState } from "../../../types/auth.types";
+import { useAgentStore } from '../../../store/useAgentStore';
 
 interface Prompt {
   id: string;
@@ -70,11 +70,22 @@ const ChatCompose: React.FC = () => {
     setUserName
   } = useAuthStore();
 
+  const { queueTask } = useAgentStore();
+
   useEffect(() => {
-    if (!isAuthenticated && !isCheckingAuth) {
-      checkAuthStatus();
+    const now = Date.now();
+    const lastChecked = parseInt(localStorage.getItem('lastChecked') || '0');
+    
+    // Only check auth if:
+    // 1. Not authenticated AND
+    // 2. Not currently checking AND
+    // 3. Haven't checked in the last 5 seconds
+    if (!isAuthenticated && 
+        !isCheckingAuth && 
+        now - lastChecked > 5000) {
+        checkAuthStatus();
     }
-  }, [isAuthenticated, isCheckingAuth]);
+  }, []); // Run only once on mount
 
   const handleGoogleAuth = async () => {
     try {
@@ -158,6 +169,9 @@ const ChatCompose: React.FC = () => {
         await handleGoogleAuth();
         return;
       }
+
+      // Queue a task for the agent to analyze the input
+      await queueTask('analyze_calendar_request', 2, { input: inputText });
 
       const threadId = await createThread(inputText);
 

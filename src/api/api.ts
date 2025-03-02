@@ -1,8 +1,6 @@
 import { AGENT_ROUTES, API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
-import { Event, Thread, ConflictResponse } from "../types/api.types";
-import { AgentStats, AgentTask, Insight, Suggestion } from "../types/agent.types";
-
-
+import { Event, Thread, ConflictResponse, Suggestion } from "../types/api.types";
+import { AgentStats, AgentTask, Insight } from "../types/agent.types";
 
 class ApiService {
     private baseURL: string;
@@ -10,7 +8,6 @@ class ApiService {
 
     constructor() {
         this.baseURL = API_BASE_URL || 'http://localhost:3000/api';
-
         // Listen for auth callback
         window.addEventListener('message', this.handleAuthMessage);
     }
@@ -53,40 +50,32 @@ class ApiService {
             ...(options?.headers || {})
         };
 
-        try {
-            const response = await fetch(`${this.baseURL}${endpoint}`, {
-                ...options,
-                headers,
-                credentials: 'include'
-            });
+        const response = await fetch(`${this.baseURL}${endpoint}`, {
+            ...options,
+            headers,
+            credentials: 'include'
+        });
 
-            if (response.status === 401 && response.headers.get('X-Calendar-Auth-Required')) {
-                // Store the request to retry later
-                const retryRequest = () => this.request<T>(endpoint, options);
-                this.pendingRequests.push(retryRequest);
+        if (response.status === 401 && response.headers.get('X-Calendar-Auth-Required')) {
+            // Store the request to retry later
+            const retryRequest = () => this.request<T>(endpoint, options);
+            this.pendingRequests.push(retryRequest);
 
-                // Trigger calendar auth
-                await this.initiateCalendarAuth();
-                throw new Error('Calendar authentication required');
-            }
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || 'An error occurred');
-            }
-
-            if (response.status === 204) {
-                return {} as T;
-            }
-
-            return response.json();
-        } catch (error) {
-            if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
-                await this.initiateCalendarAuth();
-                throw new Error('Calendar authentication required');
-            }
-            throw error;
+            // Trigger calendar auth
+            await this.initiateCalendarAuth();
+            throw new Error('Calendar authentication required');
         }
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'An error occurred');
+        }
+
+        if (response.status === 204) {
+            return {} as T;
+        }
+
+        return response.json();
     }
 
     async initiateCalendarAuth(): Promise<{ url: string }> {
@@ -200,16 +189,26 @@ class ApiService {
     }
 
     async checkCalendarAuth(): Promise<boolean> {
-        const tokens = localStorage.getItem('googleCalendarTokens');
-        if (tokens) {
+        const now = Date.now();
+        const lastChecked = parseInt(localStorage.getItem('lastChecked') || '0');
+        const cachedAuth = localStorage.getItem('isAuthenticated') === 'true';
+
+        // Use cached result if checked within last 5 seconds
+        if (now - lastChecked < 5000 && cachedAuth) {
+            console.log('Using cached auth result');
             return true;
         }
 
         try {
+            console.log('Checking calendar auth status from server');
             const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authStatus}`, {
                 credentials: 'include'
             });
             const { isAuthenticated } = await response.json();
+            
+            // Update last checked timestamp
+            localStorage.setItem('lastChecked', now.toString());
+            console.log('Server auth status:', isAuthenticated);
             return isAuthenticated;
         } catch (error) {
             console.error('Failed to check calendar auth status:', error);
@@ -225,8 +224,6 @@ class ApiService {
 
 
     // Calendar endpoints
-
-
     async executeCalendarCommand(command: string) {
         try {
             const response = await this.request<{
@@ -256,7 +253,6 @@ class ApiService {
         }
     }
 
-
     async getEvents(startDate?: Date, endDate?: Date) {
         const params = new URLSearchParams();
         if (startDate) params.append('startDate', startDate.toISOString());
@@ -267,18 +263,18 @@ class ApiService {
     }
 
     async getEvent(eventId: string) {
-        return this.request<Event>(`${CALENDAR_ROUTES.event}/${eventId}`);
+        return this.request<Event>(CALENDAR_ROUTES.event(eventId));
     }
 
     async updateEvent(eventId: string, event: Partial<Event>) {
-        return this.request<Event>(`${CALENDAR_ROUTES.event}/${eventId}`, {
+        return this.request<Event>(CALENDAR_ROUTES.event(eventId), {
             method: 'PUT',
             body: JSON.stringify(event)
         });
     }
 
     async deleteEvent(eventId: string) {
-        return this.request(`${CALENDAR_ROUTES.event}/${eventId}`, {
+        return this.request(CALENDAR_ROUTES.event(eventId), {
             method: 'DELETE'
         });
     }
@@ -333,26 +329,46 @@ class ApiService {
 
     /** Agent endpoints */
 
-    async getAgentStats() {
+    async getAgentStats(): Promise<AgentStats> {
         return this.request<AgentStats>(AGENT_ROUTES.stats);
     }
 
-    async getAgentTasks() {
+    async getAgentTasks(): Promise<AgentTask[]> {
         return this.request<AgentTask[]>(AGENT_ROUTES.tasks);
     }
 
-    async getAgentInsights() {
+    async getAgentInsights(): Promise<Insight[]> {
         return this.request<Insight[]>(AGENT_ROUTES.insights);
     }
 
-    async getAgentSuggestions() {
+    async getSuggestions(): Promise<Suggestion[]> {
         return this.request<Suggestion[]>(AGENT_ROUTES.suggestions);
     }
 
-    async updateAgentSuggestion(suggestionId: string, action: 'accept' | 'dismiss') {
+    async updateSuggestion(suggestionId: string, action: 'accept' | 'dismiss'): Promise<void> {
         return this.request(AGENT_ROUTES.suggestion(suggestionId), {
-            method: 'POST',
+            method: 'PUT',
             body: JSON.stringify({ action })
+        });
+    }
+
+    async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<string> {
+        const response = await this.request<{ taskId: string }>(AGENT_ROUTES.tasks, {
+            method: 'POST',
+            body: JSON.stringify({ task, priority, metadata })
+        });
+        return response.taskId;
+    }
+
+    async provideFeedback(responseId: string, feedback: {
+        rating: number;
+        wasHelpful: boolean;
+        comments?: string;
+        corrections?: string;
+    }): Promise<void> {
+        return this.request(`${AGENT_ROUTES.insights}/feedback/${responseId}`, {
+            method: 'POST',
+            body: JSON.stringify(feedback)
         });
     }
 
