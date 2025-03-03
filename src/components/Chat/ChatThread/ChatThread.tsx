@@ -9,6 +9,8 @@ import { apiService } from "../../../api/api";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { AuthState } from "../../../types/auth.types";
 import { formatDateTime } from "../../../utils/dateUtils";
+import { v4 as uuid } from 'uuid';
+import { Thread, Message, MessageSender } from '../../../types/chat.types';
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
@@ -30,6 +32,7 @@ const ChatThread: React.FC = () => {
     (state: AuthState) => state.isCheckingAuth
   );
   const userName = useAuthStore((state: AuthState) => state.userName);
+  const [isTyping, setIsTyping] = useState(false);
 
   const handleNewChat = React.useCallback(() => {
     if (!isAuthenticated) {
@@ -74,12 +77,55 @@ const ChatThread: React.FC = () => {
     if (newMessage.trim() === "") return;
 
     try {
-      await queueAgentTask(newMessage, threadId!);
+      // Create a new message immediately for better UX
+      const botMessageId = uuid();
+      const userMessageId = uuid();
+
+      // Update local state with user message and empty bot message
+      const updatedThread = currentThread ? {
+        ...currentThread,
+        messages: [
+          ...currentThread.messages,
+          {
+            id: userMessageId,
+            sender: 'user' as MessageSender,
+            content: newMessage,
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: botMessageId,
+            sender: 'bot' as MessageSender,
+            content: '',
+            timestamp: new Date().toISOString(),
+          }
+        ]
+      } : null;
+
+      if (updatedThread) {
+        const updatedThreads = threads.map(t => 
+          t.id === threadId ? updatedThread : t
+        ) as Thread[];
+        useChatStore.setState({ threads: updatedThreads });
+      }
+
       setNewMessage("");
+      setIsTyping(true);
+
+      // Now handle the streaming response
+      await queueAgentTask(newMessage, threadId!);
+      
+      setIsTyping(false);
     } catch (error) {
       console.error("Failed to queue agent task:", error);
+      // Optionally show error message to user
+      const errorMessage = error instanceof Error ? error.message : 'Failed to process task';
+      useChatStore.setState(state => ({
+        ...state,
+        error: errorMessage
+      }));
+      setIsTyping(false);
     }
-  }, [newMessage, queueAgentTask, threadId]);
+  }, [newMessage, queueAgentTask, threadId, currentThread, threads]);
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -93,6 +139,44 @@ const ChatThread: React.FC = () => {
 
   const handleShowMore = () => {
     setVisibleThreads((prev) => prev + 5);
+  };
+
+  const renderMessage = (message: Message) => {
+    if (message.sender === 'bot') {
+      return (
+        <div className="bot-response">
+          {message.content.includes("Here's what I'm doing:") ? (
+            <div className="process-details">
+              {message.content.split("\n").map((line, i) => (
+                <div
+                  key={i}
+                  className={`process-line ${
+                    line.startsWith("- ")
+                      ? "process-detail"
+                      : line.match(/^\d\./)
+                      ? "process-step"
+                      : ""
+                  }`}
+                  style={{ 
+                    animationDelay: `${i * 100}ms`
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {message.content}
+              {isTyping && message.content === '' && (
+                <span className="cursor" />
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return message.content;
   };
 
   return (
@@ -167,43 +251,18 @@ const ChatThread: React.FC = () => {
           <main className="chat-area">
             <div className="thread-header">
               <h2>Chat</h2>
-              <div className="header-icons"></div>
+              <div className="header-icons" />
             </div>
             <div className="thread-messages">
               {currentThread?.messages.map((message, index) => (
                 <div
-                  key={index}
+                  key={message.id} // Changed from index to message.id
                   className={`message-item ${
                     message.sender === "user" ? "user-message" : "bot-message"
                   }`}
                 >
                   <div className="message-content">
-                    {message.sender === "bot" ? (
-                      <div className="bot-response">
-                        {message.content.includes("Here's what I'm doing:") ? (
-                          <div className="process-details">
-                            {message.content.split("\n").map((line, i) => (
-                              <div
-                                key={i}
-                                className={`process-line ${
-                                  line.startsWith("- ")
-                                    ? "process-detail"
-                                    : line.match(/^\d\./)
-                                    ? "process-step"
-                                    : ""
-                                }`}
-                              >
-                                {line}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          formatCalendarResponse(message.content)
-                        )}
-                      </div>
-                    ) : (
-                      message.content
-                    )}
+                    {renderMessage(message)}
                   </div>
                   <span className="message-timestamp">
                     {formatDateTime(message.timestamp)}

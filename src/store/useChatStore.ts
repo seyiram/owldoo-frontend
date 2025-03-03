@@ -147,55 +147,68 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
             throw new Error('Thread not found');
         }
 
-        // Create optimistic message
-        const newMessage: Message = {
+        // Create optimistic user message
+        const userMessage: Message = {
             id: uuid(),
-            sender: 'user',
+            sender: 'user' as MessageSender,
             content: task,
             timestamp: new Date().toISOString(),
         }
 
-        // Update local state immediately with user message
+        // Create bot message placeholder
+        const botMessage: Message = {
+            id: uuid(),
+            sender: 'bot' as MessageSender,
+            content: '',
+            timestamp: new Date().toISOString(),
+        }
+
+        // Update local state with user message and empty bot message
         set(state => ({
             ...state,
             error: null,
             threads: state.threads.map(thread =>
                 thread.id === threadId
-                    ? { ...thread, messages: [...thread.messages, newMessage] }
+                    ? {
+                        ...thread,
+                        messages: [...thread.messages, userMessage, botMessage]
+                    }
                     : thread
-            ),
+            ) as Thread[],
         }));
 
         try {
-            console.log('Queuing agent task:', { task, threadId });
-            const response: AgentTaskResponse = await apiService.queueAgentTask(task, 1, { threadId });
-            console.log('Agent task response:', response);
+            const response = await apiService.queueAgentTask(task, 1, { threadId });
+            const reader = response.getReader();
+            let botContent = '';
 
-            // Combine responses to show both initial understanding and action details
-            const botResponse = response.initialResponse 
-                ? `${response.initialResponse}\n\n${response.processDetails || ''}`
-                : response.processDetails || response.message || 'No response from agent';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-            // Update with bot response
-            set(state => ({
-                ...state,
-                threads: state.threads.map(thread =>
-                    thread.id === threadId
-                        ? {
-                            ...thread,
-                            messages: [
-                                ...thread.messages,
-                                {
-                                    id: uuid(),
-                                    sender: 'bot',
-                                    content: botResponse,
-                                    timestamp: new Date().toISOString(),
-                                }
-                            ]
-                        }
-                        : thread
-                ),
-            }));
+                // Add artificial delay for more natural typing effect
+                await new Promise(resolve => setTimeout(resolve, 25));
+
+                // Append new chunk to bot's message
+                botContent += new TextDecoder().decode(value);
+                
+                // Update bot's message with accumulated content
+                set(state => ({
+                    ...state,
+                    threads: state.threads.map(thread =>
+                        thread.id === threadId
+                            ? {
+                                ...thread,
+                                messages: thread.messages.map(msg =>
+                                    msg.id === botMessage.id
+                                        ? { ...msg, content: botContent }
+                                        : msg
+                                )
+                            }
+                            : thread
+                    ) as Thread[],
+                }));
+            }
         } catch (error: any) {
             console.error('Error queuing agent task:', error);
             set(state => ({
@@ -205,15 +218,11 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                     thread.id === threadId
                         ? {
                             ...thread,
-                            messages: [
-                                ...thread.messages,
-                                {
-                                    id: uuid(),
-                                    sender: 'bot',
-                                    content: `Error: ${error.message}`,
-                                    timestamp: new Date().toISOString(),
-                                }
-                            ]
+                            messages: thread.messages.map(msg =>
+                                msg.id === botMessage.id
+                                    ? { ...msg, content: `Error: ${error.message}` }
+                                    : msg
+                            )
                         }
                         : thread
                 ),

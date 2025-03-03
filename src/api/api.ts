@@ -357,17 +357,29 @@ class ApiService {
         });
     }
 
-    async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<AgentTaskResponse> {
-        const response = await this.request<{ taskId: string, message: string, botResponse: string }>(AGENT_ROUTES.tasks, {
+    async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<ReadableStream> {
+        const response = await fetch(`${this.baseURL}${AGENT_ROUTES.tasks}`, {
             method: 'POST',
-            body: JSON.stringify({ task, priority, metadata })
+            headers: {
+                'Content-Type': 'application/json',
+                ...(localStorage.getItem('token') && {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                })
+            },
+            body: JSON.stringify({ task, priority, metadata }),
+            credentials: 'include'
         });
-        
-        return {
-            message: response.message,
-            botResponse: response.botResponse,
-            processDetails: response.botResponse // Include the process details in the response
-        };
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to queue task');
+        }
+
+        if (!response.body) {
+            throw new Error('No response body received');
+        }
+
+        return response.body;
     }
 
     async provideFeedback(responseId: string, feedback: {

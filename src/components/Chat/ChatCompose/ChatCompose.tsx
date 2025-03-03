@@ -16,7 +16,8 @@ import { useChatStore } from "../../../store/useChatStore";
 import { apiService } from "../../../api/api";
 import owldooLogo from "../../../assets/owldoo-logo-2.svg";
 import { useAuthStore } from "../../../store/useAuthStore";
-import { useAgentStore } from '../../../store/useAgentStore';
+import { useAgentStore } from "../../../store/useAgentStore";
+import { v4 as uuid } from "uuid";
 
 interface Prompt {
   id: string;
@@ -50,8 +51,7 @@ const prompts: Prompt[] = [
 const ChatCompose: React.FC = () => {
   const navigate = useNavigate();
   const [inputText, setInputText] = useState<string>("");
-  // const { createThread, isLoading, error } = useChatStore();
-  const createThread = useChatStore((state) => state.createThread);
+  const queueAgentTask = useChatStore((state) => state.queueAgentTask);
   const isLoading = useChatStore((state) => state.isLoading);
   const error = useChatStore((state) => state.error);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
@@ -61,28 +61,22 @@ const ChatCompose: React.FC = () => {
     suggestion?: string;
   } | null>(null);
 
-  const {
-    isAuthenticated,
-    isCheckingAuth,
-    userName,
-    checkAuthStatus,
-    logout,
-  } = useAuthStore();
+  const { isAuthenticated, isCheckingAuth, userName, checkAuthStatus, logout } =
+    useAuthStore();
 
   const { queueTask } = useAgentStore();
+  const createThread = useChatStore((state) => state.createThread);
 
   useEffect(() => {
     const now = Date.now();
-    const lastChecked = parseInt(localStorage.getItem('lastChecked') || '0');
-    
+    const lastChecked = parseInt(localStorage.getItem("lastChecked") || "0");
+
     // Only check auth if:
     // 1. Not authenticated AND
     // 2. Not currently checking AND
     // 3. Haven't checked in the last 5 seconds
-    if (!isAuthenticated && 
-        !isCheckingAuth && 
-        now - lastChecked > 5000) {
-        checkAuthStatus();
+    if (!isAuthenticated && !isCheckingAuth && now - lastChecked > 5000) {
+      checkAuthStatus();
     }
   }, []); // Run only once on mount
 
@@ -100,7 +94,7 @@ const ChatCompose: React.FC = () => {
         if (event.data.type === "CALENDAR_AUTH_SUCCESS") {
           console.log("Authentication successful");
           window.removeEventListener("message", handleAuthMessage);
-          
+
           // Add a small delay before updating state to ensure everything is ready
           setTimeout(() => {
             checkAuthStatus(); // check for full profile info
@@ -129,7 +123,7 @@ const ChatCompose: React.FC = () => {
             if (status) {
               console.log("Auth polling detected successful authentication");
               clearInterval(checkInterval);
-              
+
               // Add a small delay before updating state to ensure everything is ready
               setTimeout(() => {
                 checkAuthStatus();
@@ -169,12 +163,17 @@ const ChatCompose: React.FC = () => {
         return;
       }
 
-      // Queue a task for the agent to analyze the input
-      await queueTask('analyze_calendar_request', 2, { input: inputText });
-
+      // Create a new thread first
       const threadId = await createThread(inputText);
 
-      console.log("Thread created with ID:", threadId);
+      if (!threadId) {
+        throw new Error("Failed to create thread");
+      }
+
+      // Now queue the agent task with the new thread ID
+      await queueAgentTask(inputText, threadId);
+
+      setInputText("");
       navigate(`/chat/${threadId}`);
     } catch (error: any) {
       if (error.type === "CALENDAR_CONFLICT") {
@@ -225,7 +224,13 @@ const ChatCompose: React.FC = () => {
   if (isCheckingAuth) {
     return (
       <div className="auth-loading">
-        <img src={owldooLogo} alt="Owldoo Logo" width="80" height="80" className="loader-logo" />
+        <img
+          src={owldooLogo}
+          alt="Owldoo Logo"
+          width="80"
+          height="80"
+          className="loader-logo"
+        />
         <div className="spinner"></div>
         <div className="loader-text">Checking your authentication...</div>
       </div>
@@ -235,7 +240,13 @@ const ChatCompose: React.FC = () => {
   if (isCalendarAuthPending) {
     return (
       <div className="auth-loading">
-        <img src={owldooLogo} alt="Owldoo Logo" width="80" height="80" className="loader-logo" />
+        <img
+          src={owldooLogo}
+          alt="Owldoo Logo"
+          width="80"
+          height="80"
+          className="loader-logo"
+        />
         <div className="spinner"></div>
         <div className="loader-text">Connecting to Google Calendar...</div>
       </div>
@@ -278,7 +289,7 @@ const ChatCompose: React.FC = () => {
             the prompts below
           </p>
         </div>
-         {/* TODO: move logout button to chat threads page */}
+        {/* TODO: move logout button to chat threads page */}
         <div className="header-bottom">
           <button onClick={handleLogout} className="logout-button">
             <LogOut size={16} />
@@ -318,16 +329,6 @@ const ChatCompose: React.FC = () => {
           placeholder="Ask whatever you want...."
           className="compose-input"
         />
-        {/* <div className="compose-input-actions">
-          <button type="button" className="compose-action-button">
-            <Paperclip size={20} />
-            Add Attachment
-          </button>
-          <button type="button" className="compose-action-button">
-            <ImageIcon size={20} />
-            Use Image
-          </button>
-        </div> */}
         <button type="submit" className="compose-submit-button">
           <Send size={20} />
         </button>
@@ -364,5 +365,4 @@ const ChatCompose: React.FC = () => {
     </div>
   );
 };
-
 export default ChatCompose;

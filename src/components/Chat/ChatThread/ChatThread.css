@@ -416,6 +416,8 @@
     padding: 12px;
     border-radius: 8px;
     margin: 8px 0;
+    opacity: 0;
+    animation: fadeIn 0.3s ease forwards;
 }
 
 .process-step {
@@ -427,4 +429,38 @@
 .process-detail {
     padding-left: 16px;
     color: #4b5563;
+}
+
+.bot-response {
+  position: relative;
+}
+
+.bot-response .cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: #9333ea;
+  margin-left: 2px;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.process-line {
+  opacity: 0;
+  animation: slideIn 0.3s ease forwards;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
