@@ -8,7 +8,7 @@ import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
 import { apiService } from "../../../api/api";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { AuthState } from "../../../types/auth.types";
-import { formatDateTime } from '../../../utils/dateUtils';
+import { formatDateTime } from "../../../utils/dateUtils";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
@@ -20,10 +20,16 @@ const ChatThread: React.FC = () => {
   const error = useChatStore((state) => state.error);
   const sendMessage = useChatStore((state) => state.sendMessage);
   const getThreadHistory = useChatStore((state) => state.getThreadHistory);
+  const queueAgentTask = useChatStore((state) => state.queueAgentTask);
 
   const [newMessage, setNewMessage] = useState("");
-  const isAuthenticated = useAuthStore((state: AuthState) => state.isAuthenticated);
-  const isCheckingAuth = useAuthStore((state: AuthState) => state.isCheckingAuth);
+  const isAuthenticated = useAuthStore(
+    (state: AuthState) => state.isAuthenticated
+  );
+  const isCheckingAuth = useAuthStore(
+    (state: AuthState) => state.isCheckingAuth
+  );
+  const userName = useAuthStore((state: AuthState) => state.userName);
 
   const handleNewChat = React.useCallback(() => {
     if (!isAuthenticated) {
@@ -64,6 +70,17 @@ const ChatThread: React.FC = () => {
     }
   }, [newMessage, sendMessage, threadId]);
 
+  const handleSendAgentTask = React.useCallback(async () => {
+    if (newMessage.trim() === "") return;
+
+    try {
+      await queueAgentTask(newMessage, threadId!);
+      setNewMessage("");
+    } catch (error) {
+      console.error("Failed to queue agent task:", error);
+    }
+  }, [newMessage, queueAgentTask, threadId]);
+
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -82,7 +99,10 @@ const ChatThread: React.FC = () => {
     <div className="thread-interface">
       {isLoading || isCheckingAuth ? (
         <div className="loader-container">
-          <PropagateLoader color="#9333ea" loading={isLoading || isCheckingAuth} />
+          <PropagateLoader
+            color="#9333ea"
+            loading={isLoading || isCheckingAuth}
+          />
         </div>
       ) : (
         <>
@@ -111,7 +131,9 @@ const ChatThread: React.FC = () => {
                           <div className="thread-preview">
                             <span className="thread-title">
                               {thread.messages[0].content.slice(0, 40)}
-                              {thread.messages[0].content.length > 40 ? '...' : ''}
+                              {thread.messages[0].content.length > 40
+                                ? "..."
+                                : ""}
                             </span>
                             <span className="timestamp">
                               {formatDateTime(thread.messages[0].timestamp)}
@@ -136,7 +158,7 @@ const ChatThread: React.FC = () => {
                 className="profile-picture"
               />
               <div>
-                <p className="user-name">Brooklyn Simmons</p>
+                <p className="user-name">{userName}</p>
                 <p className="user-role">Protal</p>
               </div>
             </div>
@@ -156,21 +178,36 @@ const ChatThread: React.FC = () => {
                   }`}
                 >
                   <div className="message-content">
-                    {message.sender === "bot"
-                      ? formatCalendarResponse(message.content)
-                      : message.content}
-                    {message.hasConflict && (
-                      <div className="conflict-actions">
-                        <button onClick={() => console.log("Resolve conflict")}>
-                          Accept suggestion
-                        </button>
-                        <button onClick={() => console.log("Ignore conflict")}>
-                          Find another time
-                        </button>
+                    {message.sender === "bot" ? (
+                      <div className="bot-response">
+                        {message.content.includes("Here's what I'm doing:") ? (
+                          <div className="process-details">
+                            {message.content.split("\n").map((line, i) => (
+                              <div
+                                key={i}
+                                className={`process-line ${
+                                  line.startsWith("- ")
+                                    ? "process-detail"
+                                    : line.match(/^\d\./)
+                                    ? "process-step"
+                                    : ""
+                                }`}
+                              >
+                                {line}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          formatCalendarResponse(message.content)
+                        )}
                       </div>
+                    ) : (
+                      message.content
                     )}
                   </div>
-                  <span className="message-timestamp">{message.timestamp}</span>
+                  <span className="message-timestamp">
+                    {formatDateTime(message.timestamp)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -189,6 +226,13 @@ const ChatThread: React.FC = () => {
                 onClick={handleSendMessage}
               >
                 <Send size={20} />
+              </button>
+              <button
+                type="button"
+                className="send-agent-button"
+                onClick={handleSendAgentTask}
+              >
+                Send to Agent
               </button>
             </div>
             {error && <p className="error-message">Error: {error}</p>}

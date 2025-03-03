@@ -408,3 +408,23 @@
   min-width: 55px;
   text-align: right;
 }
+
+.process-details {
+    white-space: pre-wrap;
+    font-family: monospace;
+    background: rgba(147, 51, 234, 0.05);
+    padding: 12px;
+    border-radius: 8px;
+    margin: 8px 0;
+}
+
+.process-step {
+    font-weight: 600;
+    color: #9333ea;
+    margin-top: 8px;
+}
+
+.process-detail {
+    padding-left: 16px;
+    color: #4b5563;
+}

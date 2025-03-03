@@ -67,7 +67,6 @@ const ChatCompose: React.FC = () => {
     userName,
     checkAuthStatus,
     logout,
-    setUserName
   } = useAuthStore();
 
   const { queueTask } = useAgentStore();

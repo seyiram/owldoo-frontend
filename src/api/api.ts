@@ -1,5 +1,5 @@
 import { AGENT_ROUTES, API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
-import { Event, Thread, ConflictResponse, Suggestion } from "../types/api.types";
+import { Event, Thread, ConflictResponse, Suggestion, AgentTaskResponse } from "../types/api.types";
 import { AgentStats, AgentTask, Insight } from "../types/agent.types";
 
 class ApiService {
@@ -50,11 +50,15 @@ class ApiService {
             ...(options?.headers || {})
         };
 
+        console.log(`Making request to ${endpoint} with options:`, options);
+
         const response = await fetch(`${this.baseURL}${endpoint}`, {
             ...options,
             headers,
             credentials: 'include'
         });
+
+        console.log(`Response status: ${response.status}`);
 
         if (response.status === 401 && response.headers.get('X-Calendar-Auth-Required')) {
             // Store the request to retry later
@@ -68,6 +72,7 @@ class ApiService {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            console.error(`Request to ${endpoint} failed with status ${response.status}:`, errorData);
             throw new Error(errorData.error || 'An error occurred');
         }
 
@@ -205,7 +210,7 @@ class ApiService {
                 credentials: 'include'
             });
             const { isAuthenticated } = await response.json();
-            
+
             // Update last checked timestamp
             localStorage.setItem('lastChecked', now.toString());
             console.log('Server auth status:', isAuthenticated);
@@ -352,12 +357,17 @@ class ApiService {
         });
     }
 
-    async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<string> {
-        const response = await this.request<{ taskId: string }>(AGENT_ROUTES.tasks, {
+    async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<AgentTaskResponse> {
+        const response = await this.request<{ taskId: string, message: string, botResponse: string }>(AGENT_ROUTES.tasks, {
             method: 'POST',
             body: JSON.stringify({ task, priority, metadata })
         });
-        return response.taskId;
+        
+        return {
+            message: response.message,
+            botResponse: response.botResponse,
+            processDetails: response.botResponse // Include the process details in the response
+        };
     }
 
     async provideFeedback(responseId: string, feedback: {

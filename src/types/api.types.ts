@@ -1,42 +1,58 @@
 export interface Event {
-    id?: string;
+    id: string;
     summary: string;
     description?: string;
-    start: { dateTime: string };
-    end: { dateTime: string };
+    start: {
+        dateTime: string;
+        timeZone?: string;
+    };
+    end: {
+        dateTime: string;
+        timeZone?: string;
+    };
     location?: string;
-    attendees?: { email: string }[];
+    attendees?: Array<{
+        email: string;
+        responseStatus?: string;
+    }>;
 }
 
 export interface Thread {
     _id: string;
-    messages: {
-        sender: 'user' | 'bot';
+    messages: Array<{
+        sender: string;
         content: string;
         timestamp: string;
-    }[];
+    }>;
     createdAt: string;
 }
 
 export interface ConflictResponse {
-    error: string;
-    conflicts?: Event[];
+    type: string;
     suggestion?: string;
-    originalRequest?: any;
+    error?: string;
 }
 
 export interface Suggestion {
-  _id: string;
-  userId: string;
-  type: string;
-  title: string;
-  description: string;
-  action: {
+    id: string;
     type: string;
-    data: any;
-  };
-  status: 'pending' | 'accepted' | 'dismissed';
-  relevance: number;
-  expiresAt: string;
-  createdAt: string;
+    title: string;
+    description: string;
+    action: {
+        type: string;
+        data: any;
+    };
+    status: 'pending' | 'accepted' | 'dismissed' | 'executed';
+    relevance: number;
+    expiresAt: string;
+    createdAt: string;
+}
+
+export interface AgentTaskResponse {
+    message: string;
+    botResponse?: string;
+    processDetails?: string;
+    initialResponse?: string;
+    error?: string;
+    success?: boolean;
 }
