@@ -1,7 +1,7 @@
 import "./ChatThread.css";
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Send } from "lucide-react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { Send, Settings, Clock, Focus, Calendar } from "lucide-react";
 import { PropagateLoader } from "react-spinners";
 import { useChatStore } from "../../../store/useChatStore";
 import formatCalendarResponse from "../../../helpers/formatCalendarResponse";
@@ -9,8 +9,8 @@ import { apiService } from "../../../api/api";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { AuthState } from "../../../types/auth.types";
 import { formatDateTime } from "../../../utils/dateUtils";
-import { v4 as uuid } from 'uuid';
-import { Thread, Message, MessageSender } from '../../../types/chat.types';
+import { v4 as uuid } from "uuid";
+import { Thread, Message, MessageSender } from "../../../types/chat.types";
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
@@ -54,6 +54,29 @@ const ChatThread: React.FC = () => {
   useEffect(() => {
     getThreadHistory();
   }, [getThreadHistory]);
+  
+  // Handle pending agent task if navigated from ChatCompose
+  useEffect(() => {
+    const pendingTask = localStorage.getItem('pendingAgentTask');
+    const pendingThreadId = localStorage.getItem('pendingAgentTaskThreadId');
+    
+    if (pendingTask && pendingThreadId && pendingThreadId === threadId) {
+      // Find if there's a bot message with the pending indicator
+      const thread = threads.find(t => t.id === threadId);
+      const hasPendingMessage = thread?.messages.some(m => 
+        m.sender === 'bot' && m.content === '_PENDING_AGENT_TASK_'
+      );
+      
+      if (hasPendingMessage) {
+        // Queue the task now that we're in the ChatThread component
+        queueAgentTask(pendingTask, threadId);
+        
+        // Clear the pending task data
+        localStorage.removeItem('pendingAgentTask');
+        localStorage.removeItem('pendingAgentTaskThreadId');
+      }
+    }
+  }, [threadId, threads, queueAgentTask]);
 
   const handleInputChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,66 +89,134 @@ const ChatThread: React.FC = () => {
     if (newMessage.trim() === "") return;
 
     try {
-      await sendMessage(newMessage, threadId!);
+      setIsTyping(true); // Set typing state before sending
+      
+      // Find current thread to determine if we need to convert it to a conversation
+      const thread = threads.find(t => t.id === threadId);
+      
+      // For debugging
+      console.log('Current thread before sending message:', thread);
+      
+      // Create an optimistic message locally to show immediately
+      const userMessageId = uuid();
+      useChatStore.getState().threads = useChatStore.getState().threads.map(t => 
+        t.id === threadId ? {
+          ...t,
+          messages: [
+            ...t.messages,
+            {
+              id: userMessageId,
+              sender: 'user' as MessageSender,
+              content: newMessage,
+              timestamp: new Date().toISOString()
+            }
+          ]
+        } : t
+      );
+      
+      // Create a placeholder bot message immediately to show typing
+      const botMessageId = uuid();
+      useChatStore.getState().threads = useChatStore.getState().threads.map(t => 
+        t.id === threadId ? {
+          ...t,
+          messages: [
+            ...t.messages,
+            {
+              id: botMessageId,
+              sender: 'bot' as MessageSender,
+              content: "Processing your request...",
+              timestamp: new Date().toISOString()
+            }
+          ]
+        } : t
+      );
+      
+      // Force a state update
+      useChatStore.getState().setCurrentThread(threadId!);
+      
+      console.log('Starting direct agent task for message in thread:', threadId);
+      
+      // Use the agent API directly instead of going through conversation or chat APIs
+      try {
+        // Queue agent task directly for the thread
+        const stream = await apiService.queueAgentTask(newMessage, 1, { threadId });
+        
+        if (stream) {
+          const reader = stream.getReader();
+          let botContent = "Okay, let's process that task:\n";
+          
+          // Update with initial content
+          useChatStore.getState().threads = useChatStore.getState().threads.map(t => 
+            t.id === threadId ? {
+              ...t,
+              messages: t.messages.map(msg => 
+                msg.id === botMessageId ? {
+                  ...msg, content: botContent
+                } : msg
+              )
+            } : t
+          );
+          
+          // Process the stream
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            // Add artificial delay for more natural typing effect
+            await new Promise(resolve => setTimeout(resolve, 25));
+            
+            // Append new chunk to bot's message
+            const newContent = new TextDecoder().decode(value);
+            botContent += newContent;
+            
+            // Update bot's message with accumulated content
+            useChatStore.getState().threads = useChatStore.getState().threads.map(t => 
+              t.id === threadId ? {
+                ...t,
+                messages: t.messages.map(msg => 
+                  msg.id === botMessageId ? {
+                    ...msg, content: botContent
+                  } : msg
+                )
+              } : t
+            );
+            
+            // Force a state update
+            useChatStore.getState().setCurrentThread(threadId!);
+          }
+        }
+      } catch (agentError) {
+        console.error("Agent processing failed:", agentError);
+        
+        // Update bot message with error
+        useChatStore.getState().threads = useChatStore.getState().threads.map(t => 
+          t.id === threadId ? {
+            ...t,
+            messages: t.messages.map(msg => 
+              msg.id === botMessageId ? {
+                ...msg, content: "Sorry, I encountered an error processing your request: " + 
+                  (agentError instanceof Error ? agentError.message : String(agentError))
+              } : msg
+            )
+          } : t
+        );
+        
+        // Also try regular message API as fallback
+        try {
+          console.log('Falling back to regular message API');
+          await sendMessage(newMessage, threadId!);
+        } catch (fallbackError) {
+          console.error("Fallback also failed:", fallbackError);
+        }
+      }
+      
       setNewMessage("");
+      setIsTyping(false); // Clear typing state after completion
     } catch (error) {
       console.error("Failed to send message:", error);
+      setIsTyping(false); // Clear typing state on error
     }
-  }, [newMessage, sendMessage, threadId]);
-
-  const handleSendAgentTask = React.useCallback(async () => {
-    if (newMessage.trim() === "") return;
-
-    try {
-      // Create a new message immediately for better UX
-      const botMessageId = uuid();
-      const userMessageId = uuid();
-
-      // Update local state with user message and empty bot message
-      const updatedThread = currentThread ? {
-        ...currentThread,
-        messages: [
-          ...currentThread.messages,
-          {
-            id: userMessageId,
-            sender: 'user' as MessageSender,
-            content: newMessage,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            id: botMessageId,
-            sender: 'bot' as MessageSender,
-            content: '',
-            timestamp: new Date().toISOString(),
-          }
-        ]
-      } : null;
-
-      if (updatedThread) {
-        const updatedThreads = threads.map(t => 
-          t.id === threadId ? updatedThread : t
-        ) as Thread[];
-        useChatStore.setState({ threads: updatedThreads });
-      }
-
-      setNewMessage("");
-      setIsTyping(true);
-
-      // Now handle the streaming response
-      await queueAgentTask(newMessage, threadId!);
-      
-      setIsTyping(false);
-    } catch (error) {
-      console.error("Failed to queue agent task:", error);
-      // Optionally show error message to user
-      const errorMessage = error instanceof Error ? error.message : 'Failed to process task';
-      useChatStore.setState(state => ({
-        ...state,
-        error: errorMessage
-      }));
-      setIsTyping(false);
-    }
-  }, [newMessage, queueAgentTask, threadId, currentThread, threads]);
+  }, [newMessage, sendMessage, threadId, threads]);
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -141,11 +232,242 @@ const ChatThread: React.FC = () => {
     setVisibleThreads((prev) => prev + 5);
   };
 
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: Message): JSX.Element | string => {
     if (message.sender === 'bot') {
-      return (
-        <div className="bot-response">
-          {message.content.includes("Here's what I'm doing:") ? (
+      // Process the streaming data format that shows raw SSE messages
+      if (message.content.includes("Okay, let's process that task:") && 
+          message.content.includes("data: {")) {
+        
+        try {
+          // Extract all data fragments from the SSE response
+          const dataMatches = [...message.content.matchAll(/data: (\{.*?\})\n\n/g)];
+          if (dataMatches && dataMatches.length > 0) {
+            // Extract event data and calendar result
+            let eventData: any = null;
+            let calendarResult: any = null;
+            let parsedCommand: any = null;
+            let finalMessage = "Processing your request...";
+            let processingSteps = [];
+            
+            // Find the appropriate message to display
+            for (const match of dataMatches) {
+              try {
+                const data = JSON.parse(match[1]);
+                
+                // Collect processing steps
+                if (data.message) {
+                  processingSteps.push(data.message);
+                }
+                
+                // Get parsed command data
+                if (data.parsedCommand) {
+                  parsedCommand = data.parsedCommand;
+                }
+                
+                // Look for the "result" field containing event data
+                if (data.result && data.result.event) {
+                  eventData = data.result.event;
+                  calendarResult = data.result;
+                }
+                
+                // Look for a success message
+                if (data.success === true && data.created === true) {
+                  finalMessage = data.message || "Calendar event created successfully!";
+                }
+              } catch (jsonError) {
+                console.error("Error parsing JSON from data match:", jsonError);
+              }
+            }
+            
+            // If we found event data, format a nice response with process steps
+            if (eventData && parsedCommand) {
+              const eventStart = new Date(eventData.start.dateTime || eventData.start.date);
+              const eventEnd = new Date(eventData.end.dateTime || eventData.end.date);
+              
+              // Build process steps content
+              const formattedContent = 
+                `I will ${parsedCommand.action} ${parsedCommand.title.toLowerCase()}\n` +
+                "Here's what I'm doing:\n" +
+                "1. Understanding your request\n" +
+                `- Command type: ${parsedCommand.action.toUpperCase()}\n` +
+                "2. Parsing time details:\n" +
+                `- Start: ${new Date(parsedCommand.startTime).toLocaleString()}\n` +
+                `- Duration: ${parsedCommand.duration} minutes\n` +
+                "3. Creating calendar event:\n" +
+                `- Title: ${eventData.summary}\n` +
+                `- Start: ${eventStart.toLocaleString()}\n` +
+                `- End: ${eventEnd.toLocaleString()}\n`;
+              
+              // Build a nicely formatted response with the process steps and event details
+              return (
+                <div className="bot-response">
+                  <div className="process-details">
+                    {formattedContent.split("\n").map((line, i) => (
+                      <div
+                        key={i}
+                        className={`process-line ${
+                          line.startsWith("- ")
+                            ? "process-detail"
+                            : line.match(/^\d\./)
+                            ? "process-step"
+                            : ""
+                        }`}
+                        style={{ 
+                          animationDelay: `${i * 100}ms`
+                        }}
+                      >
+                        {line}
+                      </div>
+                    ))}
+                    <div className="process-step" style={{ animationDelay: '1000ms', marginTop: '12px' }}>
+                      4. Event created successfully! ✅
+                    </div>
+                  </div>
+                  
+                  <div className="event-card">
+                    <div className="event-title">{eventData.summary}</div>
+                    <div className="event-time">
+                      {eventStart.toLocaleString([], {
+                        weekday: 'long',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })} - {eventEnd.toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                    {eventData.description && (
+                      <div className="event-description">{eventData.description}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+            
+            // If we have parsedCommand but no event (something failed)
+            if (parsedCommand && !eventData) {
+              const formattedContent = 
+                `I attempted to ${parsedCommand.action} ${parsedCommand.title.toLowerCase()}\n` +
+                "Here's what happened:\n" +
+                "1. Understanding your request\n" +
+                `- Command type: ${parsedCommand.action.toUpperCase()}\n` +
+                "2. Parsing time details:\n" +
+                `- Start: ${new Date(parsedCommand.startTime).toLocaleString()}\n` +
+                `- Duration: ${parsedCommand.duration} minutes\n` +
+                "3. Attempted to create calendar event but encountered an issue";
+                
+              return (
+                <div className="bot-response">
+                  <div className="process-details">
+                    {formattedContent.split("\n").map((line, i) => (
+                      <div
+                        key={i}
+                        className={`process-line ${
+                          line.startsWith("- ")
+                            ? "process-detail"
+                            : line.match(/^\d\./)
+                            ? "process-step"
+                            : ""
+                        }`}
+                        style={{ 
+                          animationDelay: `${i * 100}ms`
+                        }}
+                      >
+                        {line}
+                      </div>
+                    ))}
+                    <div className="process-step error-message" style={{ animationDelay: '1000ms', marginTop: '12px' }}>
+                      ⚠️ {finalMessage}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            
+            // Fallback for when all parsing fails
+            return (
+              <div className="bot-response">
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  {finalMessage}
+                </div>
+              </div>
+            );
+          }
+        } catch (e) {
+          console.error("Error parsing streaming data:", e);
+        }
+      }
+      
+      // First check if message is a raw streaming response containing SSE data format
+      if (message.content.includes('data: {') && message.content.includes('"type":')) {
+        // Extract the actual text content from the SSE data format
+        try {
+          // Extract content portions
+          const contentMatches = [...message.content.matchAll(/data: {"type":"content","text":"([^"]+)"}/g)];
+          if (contentMatches && contentMatches.length > 0) {
+            // Combine all content fragments
+            const actualContent = contentMatches.map(match => match[1]).join('');
+            
+            // Check for completion message in final response
+            if (actualContent.toLowerCase().includes('sorry') || 
+                actualContent.toLowerCase().includes('couldn\'t') || 
+                actualContent.toLowerCase().includes('error') ||
+                actualContent.toLowerCase().includes('not available')) {
+              return (
+                <div className="bot-response error-message">
+                  <div style={{ whiteSpace: 'pre-wrap' }}>
+                    {actualContent}
+                  </div>
+                </div>
+              );
+            }
+            
+            return (
+              <div className="bot-response">
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  {actualContent || "I'll process your request..."}
+                </div>
+              </div>
+            );
+          }
+          
+          // If we couldn't extract content, check if it's a complete JSON response
+          const jsonMatch = message.content.match(/data: (\{.*\})/);
+          if (jsonMatch) {
+            try {
+              const jsonData = JSON.parse(jsonMatch[1]);
+              if (jsonData.content) {
+                return (
+                  <div className="bot-response">
+                    <div style={{ whiteSpace: 'pre-wrap' }}>
+                      {jsonData.content}
+                    </div>
+                  </div>
+                );
+              }
+            } catch (e) {
+              // JSON parsing failed, continue with other checks
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing SSE content:", e);
+        }
+      }
+      
+      // Next check if this is an agent process message
+      const isProcessMessage = message.content.includes("Here's what I'm doing:") || 
+                              message.content.includes("Step ") || 
+                              message.content.includes("I'll ") ||
+                              message.content.includes("Understanding your request") ||
+                              message.content.includes("Parsing command") ||
+                              message.content.includes("Creating calendar") ||
+                              /\d\.\s/.test(message.content);
+      
+      if (isProcessMessage) {
+        return (
+          <div className="bot-response">
             <div className="process-details">
               {message.content.split("\n").map((line, i) => (
                 <div
@@ -164,17 +486,146 @@ const ChatThread: React.FC = () => {
                   {line}
                 </div>
               ))}
-            </div>
-          ) : (
-            <div style={{ whiteSpace: 'pre-wrap' }}>
-              {message.content}
-              {isTyping && message.content === '' && (
+              {message.content === '' && isTyping && (
                 <span className="cursor" />
               )}
             </div>
-          )}
-        </div>
-      );
+          </div>
+        );
+      }
+      
+      // If not an SSE message or process message, try to parse as JSON
+      try {
+        const jsonContent = JSON.parse(message.content);
+
+        // Handle NLP analysis response
+        if (jsonContent.analysis && jsonContent.analysis.primaryIntent) {
+          const analysis = jsonContent.analysis;
+          const entities = analysis.entities || {};
+          
+          // Format entity info for display
+          const entitySummary = Object.entries(entities)
+            .filter(([_, entityList]) => (entityList as any[]).length > 0)
+            .map(([type, list]) => {
+              const entityValues = (list as any[]).map(e => e.value).join(', ');
+              return `- ${type}: ${entityValues}`;
+            })
+            .join('\n');
+            
+          // Create a well-formatted analysis message
+          const formattedContent = 
+            `I understood your request as: ${analysis.primaryIntent}\n` +
+            `Here's what I recognized:\n` +
+            (entitySummary ? entitySummary : '- No specific entities detected') + 
+            `\n\nTemporal context: ${analysis.temporalContext?.timeframe || 'PRESENT'}\n` +
+            (jsonContent.suggestedResponse ? 
+              `\nSuggested response: ${jsonContent.suggestedResponse}` : '');
+            
+          return (
+            <div className="bot-response">
+              <div className="process-details">
+                {formattedContent.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    className={`process-line ${
+                      line.startsWith("- ")
+                        ? "process-detail"
+                        : line.match(/^I understood/)
+                        ? "process-step"
+                        : line.match(/^Here's what/)
+                        ? "process-step"
+                        : line.match(/^Temporal context/)
+                        ? "process-step"
+                        : line.match(/^Suggested response/)
+                        ? "process-step highlight"
+                        : ""
+                    }`}
+                    style={{ 
+                      animationDelay: `${i * 100}ms`
+                    }}
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        
+        // If it's a parsed command response, format it nicely
+        if (jsonContent.action && jsonContent.title) {
+          // Check if this is a completed action
+          const isSuccess = jsonContent.status === "completed" || (jsonContent.result?.created === true);
+          
+          if (isSuccess) {
+            return (
+              <div className="bot-response success-message">
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  Great! I've scheduled "{jsonContent.title}" for {new Date(jsonContent.startTime || jsonContent.result?.startTime).toLocaleString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    weekday: 'long',
+                    month: 'short',
+                    day: 'numeric'
+                  })}.
+                </div>
+              </div>
+            );
+          }
+          
+          // Default formatting for command responses
+          const formattedContent = 
+            `I will schedule ${jsonContent.title.toLowerCase()} from ${new Date(jsonContent.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+            "Here's what I'm doing:\n" +
+            "1. Understanding your request:\n" +
+            `${currentThread?.messages[0]?.content || "schedule an event"}\n` +
+            "2. Parsing command details:\n" +
+            `- Type: ${jsonContent.action}\n` +
+            `- Start: ${new Date(jsonContent.startTime).toLocaleString()}\n` +
+            `- Duration: ${jsonContent.duration} minutes\n` +
+            "3. Creating calendar event:\n" +
+            `- Title: ${jsonContent.title}\n` +
+            `- Start: ${new Date(jsonContent.startTime).toLocaleString()}\n` +
+            `- End: ${new Date(new Date(jsonContent.startTime).getTime() + jsonContent.duration * 60000).toLocaleString()}\n` +
+            "4. Event created successfully!";
+            
+          return (
+            <div className="bot-response">
+              <div className="process-details">
+                {formattedContent.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    className={`process-line ${
+                      line.startsWith("- ")
+                        ? "process-detail"
+                        : line.match(/^\d\./)
+                        ? "process-step"
+                        : ""
+                    }`}
+                    style={{ 
+                      animationDelay: `${i * 100}ms`
+                    }}
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+      } catch (e) {
+        // If JSON parsing fails, render normal text
+        return (
+          <div className="bot-response">
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {message.content}
+              {message.content === '' && isTyping && (
+                <span className="cursor" />
+              )}
+            </div>
+          </div>
+        );
+      }
     }
     return message.content;
   };
@@ -235,6 +686,33 @@ const ChatThread: React.FC = () => {
               </div>
             </nav>
 
+            <div className="settings-menu">
+              <h3>
+                <Settings size={16} />
+                <span>Settings</span>
+              </h3>
+              <ul>
+                <li>
+                  <Link to="/settings/working-hours">
+                    <Clock size={16} />
+                    <span>Working Hours</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/settings/meeting-preferences">
+                    <Calendar size={16} />
+                    <span>Meeting Preferences</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/settings/focus-time">
+                    <span className="focus-icon">⚡</span>
+                    <span>Focus Time</span>
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
             <div className="user-profile">
               <img
                 src="profile.jpg"
@@ -254,7 +732,7 @@ const ChatThread: React.FC = () => {
               <div className="header-icons" />
             </div>
             <div className="thread-messages">
-              {currentThread?.messages.map((message, index) => (
+              {currentThread?.messages.map((message) => (
                 <div
                   key={message.id} // Changed from index to message.id
                   className={`message-item ${
@@ -285,13 +763,6 @@ const ChatThread: React.FC = () => {
                 onClick={handleSendMessage}
               >
                 <Send size={20} />
-              </button>
-              <button
-                type="button"
-                className="send-agent-button"
-                onClick={handleSendAgentTask}
-              >
-                Send to Agent
               </button>
             </div>
             {error && <p className="error-message">Error: {error}</p>}

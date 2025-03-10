@@ -1,18 +1,48 @@
-import { AGENT_ROUTES, API_BASE_URL, CALENDAR_ROUTES, CHAT_ROUTES } from "./api.config";
-import { Event, Thread, ConflictResponse, Suggestion, AgentTaskResponse } from "../types/api.types";
+import {
+    API_BASE_URL,
+    AUTH_ROUTES,
+    USER_ROUTES,
+    CALENDAR_ROUTES,
+    CHAT_ROUTES,
+    CONVERSATION_ROUTES,
+    AGENT_ROUTES,
+    SCHEDULING_ROUTES,
+    FEEDBACK_ROUTES
+} from "./api.config";
+import {
+    Event,
+    Thread,
+    ConflictResponse,
+    Suggestion,
+    AgentTaskResponse,
+    ConversationResponse,
+    UserPreferencesResponse,
+    SchedulingSuggestionResponse
+} from "../types/api.types";
 import { AgentStats, AgentTask, Insight } from "../types/agent.types";
+import { useAuthStore } from '../store/useAuthStore';
+
+interface RequestOptions extends RequestInit {
+    headers?: HeadersInit;
+}
 
 class ApiService {
-    private baseURL: string;
+    private readonly API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    private readonly CALENDAR_BASE = `http://localhost:3000/calendar`; // Keep calendar routes at root level
     private calendarAuthWindow: Window | null = null;
 
     constructor() {
-        this.baseURL = API_BASE_URL || 'http://localhost:3000/api';
         // Listen for auth callback
         window.addEventListener('message', this.handleAuthMessage);
     }
 
     private handleAuthMessage = (event: MessageEvent) => {
+        // Only process messages with a type field that matches our auth flow
+        if (!event.data || !event.data.type ||
+            !['CALENDAR_AUTH_SUCCESS', 'CALENDAR_AUTH_ERROR'].includes(event.data.type)) {
+            return;
+        }
+
         console.log("Auth message received:", event.data);
 
         // Accept messages from both the API domain and the frontend domain
@@ -42,19 +72,72 @@ class ApiService {
 
     private pendingRequests: (() => Promise<any>)[] = [];
 
-    private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-        const token = localStorage.getItem('token');
-        const headers: HeadersInit = {
+    private async getAuthHeaders(): Promise<Headers> {
+        // Instead of getting access token, just check auth status
+        const isAuthenticated = await useAuthStore.getState().checkAuthStatus();
+
+        return new Headers({
             'Content-Type': 'application/json',
-            ...(token && { Authorization: `Bearer ${token}` }),
-            ...(options?.headers || {})
-        };
+            // No Authorization header needed since we're using Google's OAuth
+        });
+    }
+
+    private async makeRequest<T>(
+        endpoint: string,
+        options: RequestOptions = {}
+    ): Promise<T> {
+        const headers = await this.getAuthHeaders();
+
+        try {
+            const response = await fetch(`${this.API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    ...Object.fromEntries(headers),
+                    ...options?.headers // Use optional chaining here
+                },
+                credentials: 'include' // Important for OAuth cookies
+            });
+
+            if (response.status === 401) {
+                // Trigger re-authentication
+                await useAuthStore.getState().checkAuthStatus();
+                throw new Error('Authentication required');
+            }
+
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.statusText}`);
+            }
+
+            return response.json();
+        } catch (error) {
+            console.error('API request failed:', error);
+            throw error;
+        }
+    }
+
+    // Add refresh token endpoint
+    async refreshToken(refreshToken: string): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        expiresIn: number;
+    }> {
+        return this.makeRequest('/auth/refresh', {
+            method: 'POST',
+            body: JSON.stringify({ refreshToken })
+        });
+    }
+
+    private async request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+        const headers = await this.getAuthHeaders();
 
         console.log(`Making request to ${endpoint} with options:`, options);
 
-        const response = await fetch(`${this.baseURL}${endpoint}`, {
+        const response = await fetch(`${this.API_BASE}${endpoint}`, {
             ...options,
-            headers,
+            headers: {
+                ...options?.headers ?? {},
+                ...Object.fromEntries(headers)
+            },
             credentials: 'include'
         });
 
@@ -83,100 +166,17 @@ class ApiService {
         return response.json();
     }
 
-    async initiateCalendarAuth(): Promise<{ url: string }> {
+    async initiateCalendarAuth(): Promise<void> {
         try {
-            // Close any existing auth window
-            if (this.calendarAuthWindow && !this.calendarAuthWindow.closed) {
-                this.calendarAuthWindow.close();
-            }
-
-            console.log("Requesting auth URL from:", `${this.baseURL}${CALENDAR_ROUTES.authUrl}`);
-
-            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authUrl}`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include'
-            });
-
-            // Check HTTP status
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error("Auth URL response error:", response.status, errorText);
-                throw new Error(`Failed to get auth URL: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log("Auth URL received:", data.url);
-
-            // Open auth window with specific features
-            this.calendarAuthWindow = window.open(
-                data.url,
-                'CalendarAuth',
-                'width=600,height=600,resizable=yes,scrollbars=yes,status=yes'
-            );
-
-            if (!this.calendarAuthWindow) {
-                throw new Error('Popup blocked. Please allow popups for this site.');
-            }
-
-            // Promise that resolves when auth is complete
-            return new Promise((resolve, reject) => {
-                // To increase timeout to 5 minutes (300000ms)
-                const authTimeout = setTimeout(() => {
-                    // check auth status one more time
-                    this.checkCalendarAuth().then(isAuthenticated => {
-                        if (isAuthenticated) {
-                            console.log("Auth timeout reached but user is authenticated");
-                            resolve(data);
-                        } else {
-                            console.error("Authentication timed out and user is not authenticated");
-                            reject(new Error('Authentication timed out'));
-                        }
-                    }).catch(err => {
-                        console.error("Error checking auth status after timeout:", err);
-                        reject(new Error('Authentication timed out'));
-                    });
-                }, 300000); // 30 seconds for faster feedback
-
-                const messageHandler = (event: MessageEvent) => {
-                    console.log("Auth message received:", event.data);
-                    // Accept messages from both the API domain and the frontend domain
-                    const allowedOrigins = [window.location.origin, 'http://localhost:3000', 'http://localhost:5173'];
-                    if (!allowedOrigins.includes(event.origin)) {
-                        console.log("Ignoring message from different origin:", event.origin);
-                        return;
-                    }
-
-                    if (event.data.type === 'CALENDAR_AUTH_SUCCESS') {
-                        clearTimeout(authTimeout);
-                        window.removeEventListener('message', messageHandler);
-                        console.log("Auth success, storing tokens");
-                        localStorage.setItem('googleCalendarTokens', JSON.stringify(event.data.tokens));
-                        if (this.calendarAuthWindow) {
-                            this.calendarAuthWindow.close();
-                            this.calendarAuthWindow = null;
-                        }
-                        this.retryPendingRequests();
-                        resolve(data);
-                    } else if (event.data.type === 'CALENDAR_AUTH_ERROR') {
-                        clearTimeout(authTimeout);
-                        window.removeEventListener('message', messageHandler);
-                        console.error("Auth error:", event.data.error);
-                        if (this.calendarAuthWindow) {
-                            this.calendarAuthWindow.close();
-                            this.calendarAuthWindow = null;
-                        }
-                        reject(new Error(event.data.error || 'Authentication failed'));
-                    }
-                };
-
-                window.addEventListener('message', messageHandler);
-            });
+            const response = await fetch(`${this.CALENDAR_BASE}/auth/url`);
+            if (!response.ok) throw new Error(`Failed to get auth URL: ${response.status}`);
+            const { url } = await response.json();
+            
+            // Open the auth window
+            window.open(url, 'googleAuth', 'width=500,height=600');
         } catch (error) {
-            console.error('Failed to initiate calendar auth:', error);
-            throw error;
+            console.error('Auth URL response error:', error);
+            throw new Error(`Failed to get auth URL: ${error instanceof Error ? error.message : error}`);
         }
     }
 
@@ -194,27 +194,13 @@ class ApiService {
     }
 
     async checkCalendarAuth(): Promise<boolean> {
-        const now = Date.now();
-        const lastChecked = parseInt(localStorage.getItem('lastChecked') || '0');
-        const cachedAuth = localStorage.getItem('isAuthenticated') === 'true';
-
-        // Use cached result if checked within last 5 seconds
-        if (now - lastChecked < 5000 && cachedAuth) {
-            console.log('Using cached auth result');
-            return true;
-        }
-
         try {
-            console.log('Checking calendar auth status from server');
-            const response = await fetch(`${this.baseURL}${CALENDAR_ROUTES.authStatus}`, {
+            const response = await fetch(`${this.CALENDAR_BASE}/auth/status`, {
                 credentials: 'include'
             });
-            const { isAuthenticated } = await response.json();
-
-            // Update last checked timestamp
-            localStorage.setItem('lastChecked', now.toString());
-            console.log('Server auth status:', isAuthenticated);
-            return isAuthenticated;
+            if (!response.ok) throw new Error('Auth check failed');
+            const data = await response.json();
+            return data.isAuthenticated;
         } catch (error) {
             console.error('Failed to check calendar auth status:', error);
             return false;
@@ -310,7 +296,7 @@ class ApiService {
 
     async logout(): Promise<void> {
         try {
-            await fetch(`${this.baseURL}${CALENDAR_ROUTES.logout}`, {
+            await fetch(`${this.API_BASE}${AUTH_ROUTES.logout}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -330,6 +316,40 @@ class ApiService {
             console.error('Logout failed:', error);
             throw error;
         }
+    }
+
+    // User-related methods
+    async getUserPreferences(): Promise<any> {
+        return this.request<any>(USER_ROUTES.preferences);
+    }
+
+    async updateUserPreferences(preferences: any): Promise<any> {
+        return this.request<any>(USER_ROUTES.preferences, {
+            method: 'PUT',
+            body: JSON.stringify(preferences)
+        });
+    }
+
+    async getWorkingHours(): Promise<any> {
+        return this.request<any>(USER_ROUTES.workingHours);
+    }
+
+    async updateWorkingHours(workingHours: any): Promise<any> {
+        return this.request<any>(USER_ROUTES.workingHours, {
+            method: 'PUT',
+            body: JSON.stringify(workingHours)
+        });
+    }
+
+    async getMeetingPreferences(): Promise<any> {
+        return this.request<any>(USER_ROUTES.meetingPreferences);
+    }
+
+    async updateMeetingPreferences(preferences: any): Promise<any> {
+        return this.request<any>(USER_ROUTES.meetingPreferences, {
+            method: 'PUT',
+            body: JSON.stringify(preferences)
+        });
     }
 
     /** Agent endpoints */
@@ -358,10 +378,11 @@ class ApiService {
     }
 
     async queueAgentTask(task: string, priority?: number, metadata?: any): Promise<ReadableStream> {
-        const response = await fetch(`${this.baseURL}${AGENT_ROUTES.tasks}`, {
+        const response = await fetch(`${this.API_BASE}${AGENT_ROUTES.tasks}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'text/event-stream', // Request a streaming response
                 ...(localStorage.getItem('token') && {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
                 })
@@ -394,6 +415,200 @@ class ApiService {
         });
     }
 
+    /* Conversation API methods */
+    async getConversations(): Promise<ConversationResponse[]> {
+        return this.request<ConversationResponse[]>(CONVERSATION_ROUTES.conversations);
+    }
+
+    async getConversation(conversationId: string): Promise<ConversationResponse> {
+        return this.request<ConversationResponse>(CONVERSATION_ROUTES.conversation(conversationId));
+    }
+
+    async getConversationByThread(threadId: string): Promise<ConversationResponse> {
+        console.log(`Requesting conversation for thread ID: ${threadId} at path: ${CONVERSATION_ROUTES.byThread(threadId)}`);
+        return this.request<ConversationResponse>(CONVERSATION_ROUTES.byThread(threadId));
+    }
+
+    async sendConversationMessage(message: string): Promise<any> {
+        return this.request<any>(CONVERSATION_ROUTES.message, {
+            method: 'POST',
+            body: JSON.stringify({ message })
+        });
+    }
+
+    async streamConversationResponse(message: string): Promise<ReadableStream> {
+        const response = await fetch(`${this.API_BASE}${CONVERSATION_ROUTES.stream}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(localStorage.getItem('token') && {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                })
+            },
+            body: JSON.stringify({ message }),
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to stream conversation');
+        }
+
+        if (!response.body) {
+            throw new Error('No response body received');
+        }
+
+        return response.body;
+    }
+
+    async updateConversationAction(
+        conversationId: string,
+        actionData: {
+            type: string;
+            status: string;
+            metadata: Record<string, any>;
+        }
+    ): Promise<ConversationResponse> {
+        return this.request<ConversationResponse>(
+            CONVERSATION_ROUTES.actions(conversationId),
+            {
+                method: 'POST',
+                body: JSON.stringify(actionData)
+            }
+        );
+    }
+
+    /* Scheduling API methods */
+    async getSchedulingPreferences(): Promise<UserPreferencesResponse> {
+        return this.request<UserPreferencesResponse>(SCHEDULING_ROUTES.preferences);
+    }
+
+    async updateSchedulingPreferences(preferences: Partial<UserPreferencesResponse>): Promise<UserPreferencesResponse> {
+        return this.request<UserPreferencesResponse>(
+            SCHEDULING_ROUTES.preferences,
+            {
+                method: 'PUT',
+                body: JSON.stringify(preferences)
+            }
+        );
+    }
+
+    async getSchedulingSuggestions(): Promise<SchedulingSuggestionResponse[]> {
+        return this.request<SchedulingSuggestionResponse[]>(SCHEDULING_ROUTES.suggestions);
+    }
+
+    async applySchedulingSuggestion(suggestionId: string): Promise<void> {
+        return this.request(
+            SCHEDULING_ROUTES.suggestion(suggestionId),
+            {
+                method: 'POST',
+                body: JSON.stringify({ action: 'apply' })
+            }
+        );
+    }
+
+    async dismissSchedulingSuggestion(suggestionId: string): Promise<void> {
+        return this.request(
+            SCHEDULING_ROUTES.suggestion(suggestionId),
+            {
+                method: 'POST',
+                body: JSON.stringify({ action: 'dismiss' })
+            }
+        );
+    }
+
+    async provideSchedulingFeedback(feedback: {
+        suggestionId: string;
+        accepted: boolean;
+        helpful: boolean;
+        rating?: number;
+        comments?: string;
+    }): Promise<void> {
+        return this.request(
+            SCHEDULING_ROUTES.feedback,
+            {
+                method: 'POST',
+                body: JSON.stringify(feedback)
+            }
+        );
+    }
+
+    async getFocusTimeRecommendations(date?: string): Promise<any[]> {
+        const queryParams = date ? `?date=${date}` : '';
+        return this.request<any[]>(`${SCHEDULING_ROUTES.focusTime}${queryParams}`);
+    }
+
+    async getProductivityPatterns(): Promise<any> {
+        return this.request<any>(SCHEDULING_ROUTES.productivityPatterns);
+    }
+
+    async getSchedulingOptimizations(): Promise<any[]> {
+        return this.request<any[]>(SCHEDULING_ROUTES.optimizations);
+    }
+
+    /* Feedback API methods */
+    async submitFeedback(feedback: {
+        type: string;
+        content: string;
+        rating?: number;
+        source?: string;
+    }): Promise<void> {
+        return this.request(FEEDBACK_ROUTES.submit, {
+            method: 'POST',
+            body: JSON.stringify(feedback)
+        });
+    }
+
+    async getFeedbackStats(): Promise<any> {
+        return this.request<any>(FEEDBACK_ROUTES.stats);
+    }
+
+    /* Advanced NLP and Agent methods */
+    async analyzeUserInput(input: string, context?: any): Promise<any> {
+        return this.request('/agent/analyze', {
+            method: 'POST',
+            body: JSON.stringify({ input, context })
+        });
+    }
+
+    async generateResponse(query: any): Promise<any> {
+        return this.request('/agent/respond', {
+            method: 'POST',
+            body: JSON.stringify({ query })
+        });
+    }
+
+    async extractSchedulingParameters(input: string, context?: any): Promise<any> {
+        return this.request('/agent/extract', {
+            method: 'POST',
+            body: JSON.stringify({ input, context })
+        });
+    }
+
+    async executeTask(task: {
+        description: string;
+        type: string;
+        parameters?: Record<string, any>;
+        priority?: number;
+        deadline?: Date;
+    }): Promise<any> {
+        return this.request('/agent/execute', {
+            method: 'POST',
+            body: JSON.stringify(task)
+        });
+    }
+
+    async generateClarification(query: string, ambiguities: string[]): Promise<any> {
+        return this.request('/agent/clarify', {
+            method: 'POST',
+            body: JSON.stringify({ query, ambiguities })
+        });
+    }
+
+
+    async getAgentMemoryStats(): Promise<any> {
+        return this.request('/agent/memory-stats');
+    }
 }
 
 export const apiService = new ApiService();

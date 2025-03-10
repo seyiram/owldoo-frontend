@@ -1,4 +1,22 @@
 export const API_BASE_URL = 'http://localhost:3000/api';
+
+// Auth routes
+export const AUTH_ROUTES = {
+    googleConnect: '/auth/google/connect',
+    googleCallback: '/auth/google/callback',
+    logout: '/auth/logout',
+    status: '/auth/status'
+};
+
+// User routes
+export const USER_ROUTES = {
+    profile: '/users/profile',
+    preferences: '/users/preferences',
+    workingHours: '/users/working-hours',
+    meetingPreferences: '/users/meeting-preferences',
+    account: '/users/account'
+};
+
 export const CALENDAR_ROUTES = {
     // Auth routes
     authUrl: '/calendar/auth/url',
@@ -22,10 +40,36 @@ export const CHAT_ROUTES = {
     stream: (threadId: string) => `/chat/threads/${threadId}/stream`
 };
 
+export const CONVERSATION_ROUTES = {
+    conversations: '/conversation',
+    conversation: (id: string) => `/conversation/${id}`,
+    message: '/conversation/message',
+    stream: '/conversation/stream',
+    byThread: (threadId: string) => `/conversation/thread/${threadId}`,
+    actions: (conversationId: string) => `/conversation/${conversationId}/actions`,
+};
+
 export const AGENT_ROUTES = {
     stats: '/agent/stats',
     tasks: '/agent/tasks',
     insights: '/agent/insights',
     suggestions: '/agent/suggestions',
     suggestion: (id: string) => `/agent/suggestions/${id}`
+};
+
+export const SCHEDULING_ROUTES = {
+    preferences: '/scheduling/preferences',
+    optimizations: '/scheduling/optimizations',
+    suggestions: '/scheduling/suggestions',
+    suggestion: (id: string) => `/scheduling/suggestions/${id}`,
+    feedback: '/scheduling/feedback',
+    focusTime: '/scheduling/focus-time',
+    bufferTime: '/scheduling/buffer-time',
+    meetingTypes: '/scheduling/meeting-types',
+    productivityPatterns: '/scheduling/productivity',
+};
+
+export const FEEDBACK_ROUTES = {
+    submit: '/feedback',
+    stats: '/feedback/stats'
 };

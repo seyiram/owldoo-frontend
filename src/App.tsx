@@ -1,6 +1,5 @@
 import "./App.css";
 
-
 import {
   BrowserRouter as Router,
   Routes,
@@ -10,6 +9,10 @@ import {
 import ChatCompose from "./components/Chat/ChatCompose/ChatCompose";
 import ChatThread from "./components/Chat/ChatThread/ChatThread";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
+import WorkingHours from "./components/Scheduling/WorkingHours/WorkingHours";
+import MeetingPreferences from "./components/Scheduling/MeetingPreferences/MeetingPreferences";
+import FocusTimePreferences from "./components/Scheduling/FocusTimePreferences/FocusTimePreferences";
+import NLPDashboard from "./components/NLPDashboard/NLPDashboard";
 
 function NotFound() {
   return (
@@ -28,6 +31,10 @@ function App() {
         <Routes>
           <Route path="/" element={<ChatCompose />} />
           <Route path="/chat/:threadId" element={<ChatThread />} />
+          <Route path="/settings/working-hours" element={<WorkingHours />} />
+          <Route path="/settings/meeting-preferences" element={<MeetingPreferences />} />
+          <Route path="/settings/focus-time" element={<FocusTimePreferences />} />
+          <Route path="/nlp-dashboard" element={<NLPDashboard />} />
           <Route path="/404" element={<NotFound />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>

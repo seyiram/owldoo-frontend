@@ -68,14 +68,8 @@ const ChatCompose: React.FC = () => {
   const createThread = useChatStore((state) => state.createThread);
 
   useEffect(() => {
-    const now = Date.now();
-    const lastChecked = parseInt(localStorage.getItem("lastChecked") || "0");
-
-    // Only check auth if:
-    // 1. Not authenticated AND
-    // 2. Not currently checking AND
-    // 3. Haven't checked in the last 5 seconds
-    if (!isAuthenticated && !isCheckingAuth && now - lastChecked > 5000) {
+    // Only check auth if not authenticated
+    if (!isAuthenticated && !isCheckingAuth) {
       checkAuthStatus();
     }
   }, []); // Run only once on mount
@@ -149,32 +143,44 @@ const ChatCompose: React.FC = () => {
     }
   };
 
+  // Track if we've already verified auth in this session
+  const [authVerified, setAuthVerified] = useState(false);
+  
+  // Improved handleSubmit with better auth flow
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    let isAuth = false; // Define isAuth outside the try block
+    
     try {
       setConflictError(null);
-
-      // Check authentication status before creating a thread
-      isAuth = await apiService.checkCalendarAuth();
-      if (!isAuth) {
-        setIsCalendarAuthPending(true);
-        await handleGoogleAuth();
-        return;
+      
+      // Only check auth if we haven't already verified it in this session
+      if (!authVerified) {
+        // Check calendar auth status from the backend directly
+        const isCalendarAuthed = await apiService.checkCalendarAuth();
+        
+        if (!isCalendarAuthed) {
+          console.log("Calendar auth needed, initiating flow");
+          setIsCalendarAuthPending(true);
+          await handleGoogleAuth();
+          return;
+        } else {
+          // Mark auth as verified so we don't check again unnecessarily
+          setAuthVerified(true);
+          console.log("Auth verified, proceeding with request");
+        }
       }
 
-      // Create a new thread first
-      const threadId = await createThread(inputText);
-
+      // Create a new thread with conversation mode and get the ID
+      const threadId = await createThread(inputText, false, true);
       if (!threadId) {
         throw new Error("Failed to create thread");
       }
 
-      // Now queue the agent task with the new thread ID
-      await queueAgentTask(inputText, threadId);
-
       setInputText("");
+
+      // Navigate to the thread to see the streaming response
       navigate(`/chat/${threadId}`);
+
     } catch (error: any) {
       if (error.type === "CALENDAR_CONFLICT") {
         setConflictError({
@@ -184,23 +190,20 @@ const ChatCompose: React.FC = () => {
         return;
       }
 
+      // If we get an auth error, reset the auth verified flag to try again next time
       if (
         error instanceof Error &&
-        error.message === "Calendar authentication required"
+        (error.message === "Calendar authentication required" || 
+         error.message.includes("authentication") || 
+         error.message.includes("auth"))
       ) {
-        // Auth window is already opened by the ApiService
-        // wait for it to complete
+        setAuthVerified(false);
         return;
       }
       console.error("Failed to create thread:", error);
     } finally {
-      // Ensure this is only set to false if it was set to true earlier
-      if (!isAuth) {
-        setIsCalendarAuthPending(false);
-      }
+      setIsCalendarAuthPending(false);
     }
-
-    console.log("Submitted:", inputText);
   };
 
   const handleKeyDown = React.useCallback(

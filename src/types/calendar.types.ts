@@ -3,10 +3,22 @@ export interface Event {
     id?: string;
     summary: string;
     description?: string;
-    start: { dateTime: string };
-    end: { dateTime: string };
+    start: { 
+        dateTime?: string;
+        date?: string; // For all-day events
+        timeZone?: string;
+    };
+    end: { 
+        dateTime?: string;
+        date?: string; // For all-day events
+        timeZone?: string;
+    };
     location?: string;
     attendees?: { email: string }[];
+    // Add new fields to support all-day events and multi-day events
+    isAllDay?: boolean;
+    isMultiDay?: boolean;
+    isOvernightEvent?: boolean; // For events that cross midnight
 }
 
 export interface CreateEventRequest {
@@ -19,4 +31,13 @@ export interface CreateEventRequest {
     isRecurring?: boolean;
     recurringPattern?: string;
     videoConference?: boolean;
+    isAllDay?: boolean;
+    isMultiDay?: boolean;
+    timeZone?: string;
+    context?: {
+        flags?: {
+            isAllDay?: boolean;
+            isMultiDay?: boolean;
+        }
+    };
 }

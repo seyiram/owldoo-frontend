@@ -1,76 +1,114 @@
 import { create } from 'zustand';
-import { AuthState } from '../types/auth.types';
 import { apiService } from '../api/api';
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-    isAuthenticated: localStorage.getItem('isAuthenticated') === 'true',
-    isCheckingAuth: false,
-    userName: localStorage.getItem('userName') || '',
-    lastChecked: 0, // Add this new state
-    setIsAuthenticated: (isAuthenticated) => {
-        localStorage.setItem('isAuthenticated', String(isAuthenticated));
-        set({ isAuthenticated });
-    },
-    setIsCheckingAuth: (isCheckingAuth) => set({ isCheckingAuth }),
-    setUserName: (userName) => {
-        localStorage.setItem('userName', userName);
-        set({ userName });
-    },
-    checkAuthStatus: async () => {
-        const state = get();
-        const now = Date.now();
-        
-        // Don't check if already checking or if checked recently (within 5 seconds)
-        if (state.isCheckingAuth || (state.lastChecked && now - state.lastChecked < 5000)) {
-            console.log('Skipping auth check: already checking or checked recently');
-            return;
-        }
+interface GoogleTokens {
+  access_token: string;
+  refresh_token: string;
+  expiry_date: number;
+}
 
-        try {
-            console.log('Starting auth check');
-            set({ isCheckingAuth: true });
-            const status = await apiService.checkCalendarAuth();
-            console.log('Auth check status:', status);
-            
-            if (status) {
-                const profile = await apiService.getUserProfile();
-                localStorage.setItem('isAuthenticated', 'true');
-                localStorage.setItem('userName', profile.name);
-                localStorage.setItem('lastChecked', now.toString());
-                set({ 
-                    isAuthenticated: true,
-                    userName: profile.name,
-                    lastChecked: now
-                });
-            } else {
-                localStorage.removeItem('isAuthenticated');
-                localStorage.removeItem('userName');
-                set({ 
-                    isAuthenticated: false,
-                    userName: '',
-                    lastChecked: now
-                });
-            }
-        } catch (error) {
-            console.error('Auth check failed:', error);
-            localStorage.removeItem('isAuthenticated');
-            localStorage.removeItem('userName');
-            set({ isAuthenticated: false, userName: '' });
-        } finally {
-            set({ isCheckingAuth: false });
-        }
-    },
-    logout: async () => {
-        try {
-            await apiService.logout();
-            localStorage.removeItem('isAuthenticated');
-            localStorage.removeItem('userName');
-            set({ 
-                isAuthenticated: false,
-                userName: ''
-            });
-        } catch (error) {
-            console.error('Logout failed:', error);
-        }
+interface AuthState {
+  isAuthenticated: boolean;
+  lastChecked: number;
+  tokens: GoogleTokens | null;
+  checkInterval: number;
+  isCheckingAuth: boolean;
+  userName: string | null;
+  error: string | null;
+}
+
+export const useAuthStore = create<AuthState & {
+  checkAuthStatus: () => Promise<void>;
+  checkAuth: () => Promise<boolean>;
+  handleTokenUpdate: (newTokens: GoogleTokens) => void;
+  logout: () => Promise<void>;
+}>((set, get) => ({
+  isAuthenticated: false,
+  lastChecked: 0,
+  tokens: null,
+  checkInterval: 5 * 60 * 1000, // 5 minutes
+  isCheckingAuth: false,
+  userName: null,
+  error: null,
+
+  checkAuthStatus: async () => {
+    const now = Date.now();
+    const state = get();
+
+    // Return cached result if checked recently
+    if (state.isAuthenticated && 
+        state.tokens && 
+        now - state.lastChecked < state.checkInterval && 
+        now < state.tokens.expiry_date) {
+      return;
     }
+
+    try {
+      set({ isCheckingAuth: true });
+      const isAuth = await apiService.checkCalendarAuth();
+      
+      if (isAuth) {
+        const userProfile = await apiService.getUserProfile();
+        set({ 
+          isAuthenticated: true,
+          userName: userProfile.name,
+          lastChecked: now 
+        });
+      } else {
+        set({ isAuthenticated: false, userName: null });
+      }
+    } catch (error) {
+      set({ 
+        isAuthenticated: false,
+        error: 'Failed to check auth status',
+        userName: null 
+      });
+    } finally {
+      set({ isCheckingAuth: false });
+    }
+  },
+
+  checkAuth: async () => {
+    const state = get();
+    const now = Date.now();
+
+    // Return cached result if checked recently
+    if (state.isAuthenticated && now - state.lastChecked < state.checkInterval) {
+      return true;
+    }
+
+    try {
+      const isAuth = await apiService.checkCalendarAuth();
+      set({ 
+        isAuthenticated: isAuth,
+        lastChecked: now 
+      });
+      return isAuth;
+    } catch (error) {
+      set({ isAuthenticated: false });
+      return false;
+    }
+  },
+
+  handleTokenUpdate: (newTokens: GoogleTokens) => {
+    set({ 
+      tokens: newTokens,
+      isAuthenticated: true,
+      lastChecked: Date.now() 
+    });
+  },
+
+  logout: async () => {
+    try {
+      await apiService.logout();
+      set({
+        isAuthenticated: false,
+        tokens: null,
+        userName: null,
+        error: null
+      });
+    } catch (error) {
+      set({ error: 'Failed to logout' });
+    }
+  }
 }));

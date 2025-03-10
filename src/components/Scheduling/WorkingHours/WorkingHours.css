@@ -1,0 +1,149 @@
+.working-hours-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.working-hours-container h2 {
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 1.8rem;
+}
+
+.section-description {
+  color: #666;
+  margin-bottom: 24px;
+  font-size: 0.95rem;
+}
+
+.working-hours-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.day-time-ranges {
+  display: flex;
+  gap: 16px;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #e1e1e1;
+  transition: all 0.2s ease;
+}
+
+.day-time-ranges:hover {
+  border-color: #9333ea;
+  box-shadow: 0 2px 5px rgba(147, 51, 234, 0.1);
+}
+
+.day-label {
+  min-width: 100px;
+  font-weight: 600;
+  color: #333;
+  padding-top: 8px;
+}
+
+.time-ranges {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.time-range-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.time-range-input input[type="time"] {
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  font-size: 0.9rem;
+}
+
+.time-range-input span {
+  color: #666;
+}
+
+.remove-range-button {
+  background: none;
+  border: none;
+  color: #9333ea;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.remove-range-button:hover {
+  color: #7e22ce;
+}
+
+.add-time-range-button {
+  background: none;
+  border: none;
+  color: #9333ea;
+  text-align: left;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 8px;
+  padding: 0;
+}
+
+.add-time-range-button:hover {
+  text-decoration: underline;
+}
+
+.no-hours {
+  color: #888;
+  font-style: italic;
+  margin: 8px 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.save-button {
+  background-color: #9333ea;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.save-button:hover {
+  background-color: #7e22ce;
+}
+
+.save-button:disabled {
+  background-color: #d8b4fe;
+  cursor: not-allowed;
+}
+
+.working-hours-loading {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
+
+@media (max-width: 768px) {
+  .day-time-ranges {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .day-label {
+    padding-top: 0;
+  }
+}
