@@ -13,39 +13,66 @@ interface AuthState {
     lastChecked: number;
     checkInterval: number;
     isCheckingAuth: boolean;
+    showingAuthCheck: boolean; // New flag to control UI indicators
     userName: string | null;
     error: string | null;
 }
 
-// Force check auth status on page load/refresh
-const checkAuthOnLoad = () => {
-    const authStore = useAuthStore.getState();
-    if (authStore && !authStore.isAuthenticated) {
-        console.log('Checking auth on page load/refresh');
+// Initialize auth on app load - done once when store is created
+// We'll use a different approach than an event listener
+const initializeAuth = () => {
+    // This will be called after store creation
+    if (typeof window !== 'undefined') {
+        // Initialize from localStorage on first load
+        const authTimestamp = localStorage.getItem('auth_timestamp');
+        const authData = localStorage.getItem('auth_data');
+        
+        if (authTimestamp && authData) {
+            try {
+                const parsedData = JSON.parse(authData);
+                const timestamp = parseInt(authTimestamp);
+                const now = Date.now();
+                
+                // If data is not too old (less than 1 hour), use it
+                if (now - timestamp < 60 * 60 * 1000) {
+                    useAuthStore.setState({
+                        isAuthenticated: true,
+                        userName: parsedData.userName,
+                        lastChecked: timestamp
+                    });
+                    console.log('Restored auth from local storage');
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to parse stored auth data');
+            }
+        }
+        
+        // Silently check auth status without showing UI indicator
         setTimeout(() => {
-            authStore.checkAuthStatus();
+            const authStore = useAuthStore.getState();
+            if (authStore && !authStore.isAuthenticated) {
+                console.log('Silently checking auth on initial load');
+                authStore.checkAuthStatus({ showIndicator: false });
+            }
         }, 0);
     }
 };
 
-// Add window load event listener
-if (typeof window !== 'undefined') {
-    window.addEventListener('load', checkAuthOnLoad);
-}
-
 export const useAuthStore = create<AuthState & {
-    checkAuthStatus: (options?: { fetchProfile?: boolean }) => Promise<void>;
+    checkAuthStatus: (options?: { fetchProfile?: boolean, showIndicator?: boolean }) => Promise<void>;
     handleTokenUpdate: (newTokens: GoogleTokens) => void;
     logout: () => Promise<void>;
 }>((set, get) => ({
     isAuthenticated: false,
     lastChecked: 0,
-    checkInterval: 5 * 60 * 1000, // 5 minutes
+    checkInterval: 60 * 60 * 1000, // 1 hour - increased from 5 minutes
     isCheckingAuth: false,
+    showingAuthCheck: false,
     userName: null,
     error: null,
 
-    checkAuthStatus: async (options = { fetchProfile: true }): Promise<void> => {
+    checkAuthStatus: async (options = { fetchProfile: true, showIndicator: true }): Promise<void> => {
         const now = Date.now();
         const state = get();
 
@@ -55,46 +82,62 @@ export const useAuthStore = create<AuthState & {
             return;
         }
 
-        // First check for cookie presence as a fast check
+        // Enhanced caching checks - use localStorage and cookies
         const hasAuthCookie = document.cookie.includes('auth_session=true');
-        if (state.isAuthenticated && hasAuthCookie && now - state.lastChecked < state.checkInterval) {
-            // Return cached result if we have cookie + state + recent check
-            console.log('Using cached auth status (cookie present and recent check)');
+        const authTimestamp = localStorage.getItem('auth_timestamp');
+        const authData = localStorage.getItem('auth_data');
+        
+        // Use cache if all conditions are met:
+        // 1. We're already authenticated in the store
+        // 2. Auth cookie exists
+        // 3. We have recent auth data in localStorage
+        // 4. Last check was within our check interval
+        if (state.isAuthenticated && 
+            hasAuthCookie && 
+            authTimestamp && 
+            authData && 
+            now - parseInt(authTimestamp) < state.checkInterval) {
+            
+            console.log('Using cached auth status (all conditions met)');
             return;
         }
 
         try {
-            set({ isCheckingAuth: true });
+            // Show indicator only if requested
+            set({ 
+                isCheckingAuth: true,
+                showingAuthCheck: options.showIndicator
+            });
             
-            // First try direct server check which is most reliable
+            // Try direct server check first - the most reliable way
             try {
                 const isAuthenticated = await tokenStorage.checkAuthStatus();
-                console.log(`Direct server auth check result: ${isAuthenticated}`);
                 
                 if (isAuthenticated) {
-                    if (options.fetchProfile) {
+                    let userData = { name: state.userName || 'User' };
+                    
+                    // Only fetch profile if needed and requested
+                    if (options.fetchProfile && !state.userName) {
                         try {
-                            const userProfile = await apiService.getUserProfile();
-                            set({
-                                isAuthenticated: true,
-                                userName: userProfile.name,
-                                lastChecked: now
-                            });
+                            userData = await apiService.getUserProfile();
                         } catch (profileError) {
                             console.error("Failed to fetch user profile:", profileError);
-                            // Still mark as authenticated even if profile fetch fails
-                            set({
-                                isAuthenticated: true,
-                                error: 'Authenticated but failed to fetch profile',
-                                lastChecked: now
-                            });
+                            // Continue with default user data
                         }
-                    } else {
-                        set({
-                            isAuthenticated: true,
-                            lastChecked: now
-                        });
                     }
+                    
+                    // Store auth status in localStorage for faster access on future loads
+                    localStorage.setItem('auth_timestamp', now.toString());
+                    localStorage.setItem('auth_data', JSON.stringify({ 
+                        userName: userData.name
+                    }));
+                    
+                    // Update state
+                    set({
+                        isAuthenticated: true,
+                        userName: userData.name,
+                        lastChecked: now
+                    });
                     return;
                 }
             } catch (serverCheckError) {
@@ -102,72 +145,67 @@ export const useAuthStore = create<AuthState & {
                 // Continue to fallback checks
             }
             
-            // If auth cookie is present but server check failed, try to proceed anyway
+            // If auth cookie is present but server check failed, trust the cookie
             if (hasAuthCookie) {
-                console.log('Auth cookie present despite server check failure, proceeding');
-                if (options.fetchProfile) {
+                console.log('Auth cookie present, considering authenticated');
+                
+                let userName = state.userName || 'User';
+                
+                // Try to get profile data if needed
+                if (options.fetchProfile && !state.userName) {
                     try {
                         const userProfile = await apiService.getUserProfile();
-                        set({
-                            isAuthenticated: true,
-                            userName: userProfile.name,
-                            lastChecked: now
-                        });
-                        return;
+                        userName = userProfile.name;
                     } catch (profileError) {
                         console.error("Failed to fetch profile with cookie present:", profileError);
-                        // Still mark as authenticated to avoid login loops
-                        set({
-                            isAuthenticated: true,
-                            error: 'Using cookie-based auth, profile fetch failed',
-                            lastChecked: now
-                        });
-                        return;
                     }
-                } else {
-                    set({
-                        isAuthenticated: true,
-                        lastChecked: now
-                    });
-                    return;
                 }
+                
+                // Store this status for faster access
+                localStorage.setItem('auth_timestamp', now.toString());
+                localStorage.setItem('auth_data', JSON.stringify({ userName }));
+                
+                set({
+                    isAuthenticated: true,
+                    userName,
+                    lastChecked: now
+                });
+                return;
             }
             
-            // If direct check fails, try token refresh as backup
+            // As a last resort, try token refresh
             try {
                 const refreshed = await tokenStorage.refreshTokenIfNeeded();
-                console.log(`Token refresh result: ${refreshed}`);
                 
                 if (refreshed) {
-                    // Try calendar auth check after token refresh
                     const authStatus = await apiService.checkCalendarAuth();
-                    console.log(`Calendar auth check after refresh: ${authStatus}`);
                     
                     if (authStatus) {
+                        let userName = state.userName || 'User';
+                        
                         if (options.fetchProfile) {
                             try {
                                 const userProfile = await apiService.getUserProfile();
-                                set({
-                                    isAuthenticated: true,
-                                    userName: userProfile.name,
-                                    lastChecked: now
-                                });
+                                userName = userProfile.name;
                             } catch (profileError) {
                                 console.error("Failed to fetch profile after refresh:", profileError);
-                                // Still consider authenticated
-                                set({
-                                    isAuthenticated: true,
-                                    error: 'Authenticated via refresh but profile failed',
-                                    lastChecked: now
-                                });
                             }
-                        } else {
-                            set({
-                                isAuthenticated: true,
-                                lastChecked: now
-                            });
                         }
+                        
+                        // Store this status
+                        localStorage.setItem('auth_timestamp', now.toString());
+                        localStorage.setItem('auth_data', JSON.stringify({ userName }));
+                        
+                        set({
+                            isAuthenticated: true,
+                            userName,
+                            lastChecked: now
+                        });
                     } else {
+                        // Clear any stored auth data
+                        localStorage.removeItem('auth_timestamp');
+                        localStorage.removeItem('auth_data');
+                        
                         set({
                             isAuthenticated: false,
                             userName: null,
@@ -175,6 +213,10 @@ export const useAuthStore = create<AuthState & {
                         });
                     }
                 } else {
+                    // Clear any stored auth data
+                    localStorage.removeItem('auth_timestamp');
+                    localStorage.removeItem('auth_data');
+                    
                     set({
                         isAuthenticated: false,
                         userName: null,
@@ -183,6 +225,11 @@ export const useAuthStore = create<AuthState & {
                 }
             } catch (refreshError) {
                 console.error('Token refresh error:', refreshError);
+                
+                // Clear any stored auth data
+                localStorage.removeItem('auth_timestamp');
+                localStorage.removeItem('auth_data');
+                
                 set({
                     isAuthenticated: false,
                     userName: null,
@@ -198,7 +245,10 @@ export const useAuthStore = create<AuthState & {
                 lastChecked: now
             });
         } finally {
-            set({ isCheckingAuth: false });
+            set({ 
+                isCheckingAuth: false,
+                showingAuthCheck: false 
+            });
         }
     },
 
@@ -231,3 +281,6 @@ export const useAuthStore = create<AuthState & {
         }
     }
 }));
+
+// Call this once after store is created to initialize authentication state
+initializeAuth();
