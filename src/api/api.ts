@@ -27,13 +27,45 @@ interface RequestOptions extends RequestInit {
 }
 
 class ApiService {
-    private readonly API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-    private readonly CALENDAR_BASE = `http://localhost:3000/calendar`; // Keep calendar routes at root level
+    private readonly API_BASE = import.meta.env.VITE_API_URL || '/api';
+    private readonly CALENDAR_BASE = '/calendar'; // Keep calendar routes at root level
     private calendarAuthWindow: Window | null = null;
 
     constructor() {
         // Listen for auth callback
         window.addEventListener('message', this.handleAuthMessage);
+
+        // Run a quick CORS test on startup
+        this.testConnection().catch(err =>
+            console.warn('Initial connection test failed, this may indicate CORS issues:', err)
+        );
+    }
+
+    // Test method to check if basic CORS is working
+    async testConnection(): Promise<boolean> {
+        try {
+            console.log('Testing connection to backend...');
+            const response = await fetch('/health', {
+                method: 'GET',
+                mode: 'cors',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.error('Connection test failed with status:', response.status);
+                return false;
+            }
+
+            const data = await response.json();
+            console.log('Backend connection successful:', data);
+            return true;
+        } catch (error) {
+            console.error('Connection test failed with error:', error);
+            return false;
+        }
     }
 
     private handleAuthMessage = (event: MessageEvent) => {
@@ -46,7 +78,7 @@ class ApiService {
         console.log("Auth message received:", event.data);
 
         // Accept messages from both the API domain and the frontend domain
-        const allowedOrigins = [window.location.origin, 'http://localhost:3000', 'http://localhost:5173'];
+        const allowedOrigins = [window.location.origin, 'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
         if (!allowedOrigins.includes(event.origin)) {
             console.log("Ignoring message from different origin:", event.origin);
             return;
@@ -55,26 +87,39 @@ class ApiService {
         if (event.data.type === 'CALENDAR_AUTH_SUCCESS') {
             console.log("Auth success in handleAuthMessage, storing tokens");
             localStorage.setItem('googleCalendarTokens', JSON.stringify(event.data.tokens));
-            if (this.calendarAuthWindow) {
-                this.calendarAuthWindow.close();
-                this.calendarAuthWindow = null;
-            }
+            // Don't attempt to close the window here since it will close itself
+            this.calendarAuthWindow = null;
             // Retry any pending requests
             this.retryPendingRequests();
         } else if (event.data.type === 'CALENDAR_AUTH_ERROR') {
             console.error("Auth error in handleAuthMessage:", event.data.error);
-            if (this.calendarAuthWindow) {
-                this.calendarAuthWindow.close();
-                this.calendarAuthWindow = null;
-            }
+            // Don't attempt to close the window here since it will close itself
+            this.calendarAuthWindow = null;
         }
     };
 
     private pendingRequests: (() => Promise<any>)[] = [];
 
+    // Track auth check to prevent recursive calls
+    private isCheckingAuth = false;
+    private lastAuthCheck = 0;
+    private AUTH_CHECK_COOLDOWN = 5000; // 5 seconds
+
     private async getAuthHeaders(): Promise<Headers> {
-        // Instead of getting access token, just check auth status
-        const isAuthenticated = await useAuthStore.getState().checkAuthStatus();
+        const now = Date.now();
+
+        // Only check auth if not already checking and not checked recently
+        if (!this.isCheckingAuth && now - this.lastAuthCheck > this.AUTH_CHECK_COOLDOWN) {
+            try {
+                this.isCheckingAuth = true;
+                await useAuthStore.getState().checkAuthStatus();
+                this.lastAuthCheck = Date.now();
+            } catch (error) {
+                console.error('Auth check failed in getAuthHeaders:', error);
+            } finally {
+                this.isCheckingAuth = false;
+            }
+        }
 
         return new Headers({
             'Content-Type': 'application/json',
@@ -99,8 +144,15 @@ class ApiService {
             });
 
             if (response.status === 401) {
-                // Trigger re-authentication
-                await useAuthStore.getState().checkAuthStatus();
+                // Check if we've triggered auth recently to avoid loops
+                const now = Date.now();
+                if (now - this.lastAuthCheck > this.AUTH_CHECK_COOLDOWN) {
+                    this.lastAuthCheck = now;
+                    // Trigger re-authentication, but don't await to avoid blocking
+                    useAuthStore.getState().checkAuthStatus().catch(e => {
+                        console.error('Auth check failed in response handler:', e);
+                    });
+                }
                 throw new Error('Authentication required');
             }
 
@@ -128,28 +180,101 @@ class ApiService {
     }
 
     private async request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+        await this.refreshTokenIfNeeded();
+
+        const isAuthEndpoint = endpoint.includes('/auth');
+        const isCalendarEndpoint = endpoint.includes('/calendar') || endpoint.includes('/events');
+        
+        // Only do the calendar token check for calendar-specific operations
+        if (!isAuthEndpoint && isCalendarEndpoint) {
+            const isTokenValid = this.hasValidToken();
+
+            if (!isTokenValid) {
+                console.log('Auth required for calendar operation, checking auth status first');
+                
+                // Check if we're actually authenticated with the server first
+                try {
+                    const authCheck = await fetch('/api/auth/status', {
+                        method: 'GET',
+                        credentials: 'include',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (authCheck.ok) {
+                        const authData = await authCheck.json();
+                        if (authData.isAuthenticated) {
+                            console.log('Server reports authenticated, proceeding with request');
+                            // We're authenticated, proceed with the request
+                        } else {
+                            // We need to authenticate
+                            console.log('Server reports not authenticated, initiating auth');
+                            const retryRequest = () => this.request<T>(endpoint, options);
+                            this.pendingRequests.push(retryRequest);
+                            await this.initiateCalendarAuth();
+                            throw new Error('Calendar authentication required');
+                        }
+                    } else {
+                        // Server error, fall back to token check
+                        const retryRequest = () => this.request<T>(endpoint, options);
+                        this.pendingRequests.push(retryRequest);
+                        await this.initiateCalendarAuth();
+                        throw new Error('Calendar authentication required');
+                    }
+                } catch (authCheckError) {
+                    console.error('Error checking auth status:', authCheckError);
+                    // Auth check failed, fall back to initiating auth
+                    const retryRequest = () => this.request<T>(endpoint, options);
+                    this.pendingRequests.push(retryRequest);
+                    await this.initiateCalendarAuth();
+                    throw new Error('Calendar authentication required');
+                }
+            }
+        }
+
         const headers = await this.getAuthHeaders();
 
         console.log(`Making request to ${endpoint} with options:`, options);
 
+        // Enhanced request configuration for better CORS handling
         const response = await fetch(`${this.API_BASE}${endpoint}`, {
             ...options,
             headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
                 ...options?.headers ?? {},
                 ...Object.fromEntries(headers)
             },
-            credentials: 'include'
+            credentials: 'include',
+            mode: 'cors'
         });
 
         console.log(`Response status: ${response.status}`);
 
         if (response.status === 401 && response.headers.get('X-Calendar-Auth-Required')) {
-            // Store the request to retry later
-            const retryRequest = () => this.request<T>(endpoint, options);
-            this.pendingRequests.push(retryRequest);
+            // Store the request to retry later (but limit to prevent loops)
+            const requestKey = `${endpoint}-${JSON.stringify(options || {})}`;
+            const existingRequests = this.pendingRequests.filter(r =>
+                r.toString().includes(requestKey)).length;
 
-            // Trigger calendar auth
-            await this.initiateCalendarAuth();
+            // Only queue this request if we don't have too many of the same one
+            if (existingRequests < 2) {
+                const retryRequest = () => this.request<T>(endpoint, options);
+                this.pendingRequests.push(retryRequest);
+
+                // Check if we've triggered auth recently to avoid loops
+                const now = Date.now();
+                if (now - this.lastAuthCheck > this.AUTH_CHECK_COOLDOWN) {
+                    this.lastAuthCheck = now;
+                    // Trigger calendar auth but don't wait for it to complete
+                    this.initiateCalendarAuth().catch(e => {
+                        console.error('Failed to initiate auth:', e);
+                    });
+                }
+            }
+
             throw new Error('Calendar authentication required');
         }
 
@@ -166,17 +291,70 @@ class ApiService {
         return response.json();
     }
 
+
+    // Method to check token validity - uses both localStorage and cookie check
+    private hasValidToken(): boolean {
+        // First check for auth cookie which indicates general authentication
+        const hasAuthCookie = document.cookie.includes('auth_session=true');
+        
+        // If we have the auth cookie, consider it valid as we're using the same auth for both
+        if (hasAuthCookie) {
+            return true;
+        }
+        
+        // Fallback to localStorage check for backward compatibility
+        const tokensJson = localStorage.getItem('googleCalendarTokens');
+        if (!tokensJson) return false;
+
+        try {
+            const tokens = JSON.parse(tokensJson);
+            // Check if token exists and isn't expired
+            return tokens && tokens.access_token && (!tokens.expiry_date || tokens.expiry_date > Date.now());
+        } catch {
+            return false;
+        }
+    }
+
     async initiateCalendarAuth(): Promise<void> {
         try {
-            const response = await fetch(`${this.CALENDAR_BASE}/auth/url`);
-            if (!response.ok) throw new Error(`Failed to get auth URL: ${response.status}`);
+            // Including mode and credentials explicitly for CORS
+            const response = await fetch(`${this.CALENDAR_BASE}/auth/url`, {
+                method: 'GET',
+                credentials: 'include',
+                mode: 'cors',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Auth URL response error details:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    responseText: errorText
+                });
+                throw new Error(`Failed to get auth URL: ${response.status} ${response.statusText}`);
+            }
+
             const { url } = await response.json();
-            
+            console.log('Successfully received auth URL:', url);
+
+            // Close any existing auth window
+            if (this.calendarAuthWindow && !this.calendarAuthWindow.closed) {
+                this.calendarAuthWindow.close();
+            }
+
             // Open the auth window
-            window.open(url, 'googleAuth', 'width=500,height=600');
+            this.calendarAuthWindow = window.open(url, 'googleAuth', 'width=500,height=600');
+
+            if (!this.calendarAuthWindow) {
+                throw new Error('Failed to open authentication window - popup may have been blocked');
+            }
         } catch (error) {
             console.error('Auth URL response error:', error);
-            throw new Error(`Failed to get auth URL: ${error instanceof Error ? error.message : error}`);
+            throw new Error(`Failed to get auth URL: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -194,23 +372,151 @@ class ApiService {
     }
 
     async checkCalendarAuth(): Promise<boolean> {
+        // First try the regular API auth status endpoint
         try {
-            const response = await fetch(`${this.CALENDAR_BASE}/auth/status`, {
-                credentials: 'include'
+            console.log('Checking regular auth status first');
+            const authResponse = await fetch('/api/auth/status', {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
             });
-            if (!response.ok) throw new Error('Auth check failed');
-            const data = await response.json();
-            return data.isAuthenticated;
+            
+            if (authResponse.ok) {
+                const authData = await authResponse.json();
+                console.log('Regular auth check response:', authData);
+                
+                if (authData.isAuthenticated) {
+                    console.log('Authenticated via regular auth endpoint');
+                    return true;
+                }
+            }
+        } catch (authError) {
+            console.error('Regular auth check failed:', authError);
+            // Continue to calendar auth
+        }
+        
+        // Next check for auth cookie
+        const hasAuthCookie = document.cookie.includes('auth_session=true');
+        if (hasAuthCookie) {
+            console.log('Found auth cookie, assuming authenticated');
+            return true;
+        }
+
+        // Fallback to calendar-specific auth check
+        try {
+            console.log('Checking calendar auth status with backend...');
+            // More explicit fetch configuration for CORS
+            const response = await fetch(`${this.CALENDAR_BASE}/auth/status`, {
+                method: 'GET',
+                credentials: 'include',
+                mode: 'cors',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Calendar auth check error details:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    responseText: errorText
+                });
+                throw new Error(`Calendar auth check failed: ${response.status} ${response.statusText}`);
+            }
+
+            // Try to parse response as JSON with error handling
+            try {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.error('Expected JSON response from calendar auth check but got:', contentType);
+                    const textResponse = await response.text();
+                    console.error('Non-JSON calendar auth response:', textResponse);
+                    return false;
+                }
+                
+                const data = await response.json();
+                console.log('Calendar auth check response:', data);
+                
+                return data.isAuthenticated === true;
+            } catch (parseError) {
+                console.error('Error parsing calendar auth response as JSON:', parseError);
+                return false;
+            }
         } catch (error) {
             console.error('Failed to check calendar auth status:', error);
+            // Already checked cookies, so return false
             return false;
         }
     }
 
     async getUserProfile() {
-        return this.request<{ name: string; email: string | null }>(CALENDAR_ROUTES.userProfile, {
-            method: 'GET'
-        });
+        try {
+            // First check if we have a valid auth session before trying to get profile
+            const authStatus = await fetch('/api/auth/status', {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            // If we have auth status, extract user information directly
+            if (authStatus.ok) {
+                const data = await authStatus.json();
+                if (data.isAuthenticated && data.user) {
+                    console.log('Using user profile from auth status');
+                    return data.user;
+                }
+            }
+            
+            // Fallback to calendar profile if auth status doesn't have user info
+            console.log('Falling back to calendar API for user profile');
+            return this.request<{ name: string; email: string | null }>(CALENDAR_ROUTES.userProfile, {
+                method: 'GET'
+            });
+        } catch (error) {
+            console.error('Error getting user profile:', error);
+            // Return a default user profile to prevent auth loops
+            return { name: 'User', email: null };
+        }
+    }
+
+    private async refreshTokenIfNeeded(): Promise<boolean> {
+        const tokensJson = localStorage.getItem('googleCalendarTokens');
+        if (!tokensJson) return false;
+
+        try {
+            const tokens = JSON.parse(tokensJson);
+            if (!tokens.refresh_token) return false;
+
+            // Check if token is expired or about to expire (within 5 minutes)
+            if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
+                console.log('Token expired or about to expire, refreshing...');
+
+                // Refresh the token
+                const newTokens = await this.refreshToken(tokens.refresh_token);
+
+                // Save the new tokens
+                localStorage.setItem('googleCalendarTokens', JSON.stringify({
+                    access_token: newTokens.accessToken,
+                    refresh_token: newTokens.refreshToken || tokens.refresh_token,
+                    expiry_date: Date.now() + newTokens.expiresIn * 1000
+                }));
+
+                return true;
+            }
+
+            return true; // Token is valid
+        } catch (error) {
+            console.error('Error refreshing token:', error);
+            return false;
+        }
     }
 
 
@@ -296,16 +602,22 @@ class ApiService {
 
     async logout(): Promise<void> {
         try {
+            // Call backend logout endpoint
             await fetch(`${this.API_BASE}${AUTH_ROUTES.logout}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                credentials: 'include' // Important for cookies
             });
 
             // Clear local storage tokens
             localStorage.removeItem('googleCalendarTokens');
             localStorage.removeItem('token');
+
+            // Also clear cookies on client side for redundancy
+            document.cookie = 'auth_session=; Max-Age=0; path=/; domain=' + window.location.hostname;
+            document.cookie = 'auth_timestamp=; Max-Age=0; path=/; domain=' + window.location.hostname;
 
             // Reset auth state
             this.calendarAuthWindow = null;
@@ -314,6 +626,13 @@ class ApiService {
             console.log('Logged out successfully');
         } catch (error) {
             console.error('Logout failed:', error);
+
+            // Even if server logout fails, clear local data
+            localStorage.removeItem('googleCalendarTokens');
+            localStorage.removeItem('token');
+            document.cookie = 'auth_session=; Max-Age=0; path=/; domain=' + window.location.hostname;
+            document.cookie = 'auth_timestamp=; Max-Age=0; path=/; domain=' + window.location.hostname;
+
             throw error;
         }
     }

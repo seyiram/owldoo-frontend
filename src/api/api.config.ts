@@ -1,4 +1,5 @@
-export const API_BASE_URL = 'http://localhost:3000/api';
+// Use relative URL to work with Vite proxy
+export const API_BASE_URL = '/api';
 
 // Auth routes
 export const AUTH_ROUTES = {
@@ -35,9 +36,9 @@ export const CALENDAR_ROUTES = {
 export const CHAT_ROUTES = {
     createThread: '/chat/threads',
     threads: '/chat/threads',
-    thread: (id: string) => `/chat/threads/${id}`,
-    messages: (threadId: string) => `/chat/threads/${threadId}/messages`,
-    stream: (threadId: string) => `/chat/threads/${threadId}/stream`
+    thread: (id: string) => `/chat/${id}`, // Fixed: changed from '/chat/threads/${id}' to match backend route
+    messages: (threadId: string) => `/chat/${threadId}/messages`, // Fixed: similar update for consistency
+    stream: (threadId: string) => `/chat/${threadId}/stream` // Fixed: similar update for consistency
 };
 
 export const CONVERSATION_ROUTES = {

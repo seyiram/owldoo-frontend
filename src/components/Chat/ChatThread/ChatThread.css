@@ -356,6 +356,57 @@
   text-align: center;
 }
 
+.debug-info {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #666;
+  position: relative;
+}
+
+.debug-info.hidden {
+  height: 36px;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+}
+
+.debug-toggle {
+  background-color: #6b46c1;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.debug-action {
+  background-color: #e53e3e;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+.no-messages {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  padding: 20px;
+  margin: 20px;
+  text-align: center;
+  color: #721c24;
+}
+
 .loader-container {
   display: flex;
   justify-content: center;
