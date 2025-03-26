@@ -72,6 +72,7 @@ export interface ChatState {
     sendMessage: (content: string, threadId: string) => Promise<void>;
     queueAgentTask: (task: string, threadId: string) => Promise<void>;
     setCurrentThread: (threadId: string) => void;
+    setThreads: (threads: Thread[]) => void;
     setThreadConversation: (threadId: string, conversationId: string) => void;
     getThreadHistory: () => Promise<void>;
     getConversationHistory: () => Promise<void>;

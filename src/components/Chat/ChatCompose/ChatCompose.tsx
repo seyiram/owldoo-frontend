@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   RefreshCw,
   Paperclip,
@@ -17,15 +17,9 @@ import { apiService } from "../../../api/api";
 import owldooLogo from "../../../assets/owldoo-logo-2.svg";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { useAgentStore } from "../../../store/useAgentStore";
-import { v4 as uuid } from "uuid";
+import { useQueueAgentTask } from "../../../hooks/useApi";
 
-interface Prompt {
-  id: string;
-  title: string;
-  icon: React.ReactNode;
-}
-
-const prompts: Prompt[] = [
+const prompts = [
   {
     id: "schedule",
     title: "Schedule a meeting with John tomorrow at 3pm",
@@ -48,10 +42,11 @@ const prompts: Prompt[] = [
   },
 ];
 
-const ChatCompose: React.FC = () => {
+const ChatCompose = () => {
   const navigate = useNavigate();
-  const [inputText, setInputText] = useState<string>("");
-  const queueAgentTask = useChatStore((state) => state.queueAgentTask);
+  const queueAgentTask = useAgentStore((state) => state.queueTask);
+  const [inputText, setInputText] = useState("");
+  const createThread = useChatStore((state) => state.createThread);
   const isLoading = useChatStore((state) => state.isLoading);
   const error = useChatStore((state) => state.error);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
@@ -60,153 +55,414 @@ const ChatCompose: React.FC = () => {
     error: string;
     suggestion?: string;
   } | null>(null);
+  const [calendarAuthNeeded, setCalendarAuthNeeded] = useState(false);
+  const [authInitiated, setAuthInitiated] = useState(false);
+
+  // Use refs to manage the polling interval and track authentication attempts
+  const authPollIntervalRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const { isAuthenticated, isCheckingAuth, userName, checkAuthStatus, logout } =
     useAuthStore();
 
-  const { queueTask } = useAgentStore();
-  const createThread = useChatStore((state) => state.createThread);
-
+  // Run auth check on component mount and when authInitiated changes
   useEffect(() => {
-    // Only check auth if not authenticated
-    if (!isAuthenticated && !isCheckingAuth) {
-      checkAuthStatus();
-    }
-  }, []); // Run only once on mount
-
-  const handleGoogleAuth = async () => {
-    try {
-      setIsCalendarAuthPending(true);
-      console.log("Initiating Google Calendar authentication...");
-
-      // Get the auth URL and let the API service handle the window opening
-      await apiService.initiateCalendarAuth();
-
-      // one-time event listener for auth completion
-      const handleAuthMessage = (event: MessageEvent) => {
-        console.log("Received message event:", event.data);
-        if (event.data.type === "CALENDAR_AUTH_SUCCESS") {
-          console.log("Authentication successful");
-          window.removeEventListener("message", handleAuthMessage);
-
-          // Add a small delay before updating state to ensure everything is ready
-          setTimeout(() => {
-            checkAuthStatus(); // check for full profile info
-          }, 100);
-        } else if (event.data.type === "CALENDAR_AUTH_ERROR") {
-          console.error("Authentication failed:", event.data.error);
-          window.removeEventListener("message", handleAuthMessage);
+    // Use a local variable to track if cleanup has occurred
+    let isMounted = true;
+    
+    const checkAuth = async () => {
+      // Always check auth status on mount or when authInitiated is reset
+      if (isMounted) {
+        setAuthInitiated(true);
+        
+        // Clear any stale auth flags
+        localStorage.removeItem('auth_completed');
+        
+        console.log("Running auth check in ChatCompose");
+        
+        // Check for auth cookie first
+        const hasAuthCookie = document.cookie.includes('auth_session=true');
+        if (hasAuthCookie) {
+          console.log("Auth cookie found on component mount");
         }
-      };
+        
+        await checkAuthStatus();
+      }
+    };
+    
+    checkAuth();
 
-      window.addEventListener("message", handleAuthMessage);
+    // Clean up function for when component unmounts
+    return () => {
+      // Mark component as unmounted to prevent state updates
+      isMounted = false;
+      
+      // Clear any active polling
+      if (authPollIntervalRef.current) {
+        clearInterval(authPollIntervalRef.current);
+        authPollIntervalRef.current = undefined;
+      }
+    };
+  }, [checkAuthStatus, authInitiated]);
 
-      // Start polling to check auth status in case message event doesn't fire
-      const pollAuthStatus = async () => {
-        const maxAttempts = 15;
-        let attempts = 0;
+  // Track when last auth was initiated to prevent duplicate requests
+  const lastAuthInitRef = useRef<number>(0);
+  const AUTH_COOLDOWN = 10000; // 10 seconds cooldown between auth attempts
 
-        const checkInterval = setInterval(async () => {
-          attempts++;
-          console.log(
-            `Polling auth status (attempt ${attempts}/${maxAttempts})...`
-          );
-
-          try {
-            const status = await apiService.checkCalendarAuth();
-            if (status) {
-              console.log("Auth polling detected successful authentication");
-              clearInterval(checkInterval);
-
-              // Add a small delay before updating state to ensure everything is ready
-              setTimeout(() => {
-                checkAuthStatus();
-              }, 100);
-            } else if (attempts >= maxAttempts) {
-              console.log("Auth polling max attempts reached");
-              clearInterval(checkInterval);
-            }
-          } catch (error) {
-            console.error("Error during auth polling:", error);
-            if (attempts >= maxAttempts) {
-              clearInterval(checkInterval);
-            }
-          }
-        }, 2000); // Check every 2 seconds
-      };
-
-      pollAuthStatus();
-    } catch (error) {
-      console.error("Failed to initiate auth:", error);
-    } finally {
-      setIsCalendarAuthPending(false);
+  const handleGoogleAuth = useCallback(async () => {
+    // Prevent multiple auth requests in a short time period
+    const now = Date.now();
+    if (now - lastAuthInitRef.current < AUTH_COOLDOWN) {
+      console.log("Auth request too soon after previous request, ignoring");
+      return;
     }
-  };
-
-  // Track if we've already verified auth in this session
-  const [authVerified, setAuthVerified] = useState(false);
-  
-  // Improved handleSubmit with better auth flow
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    
+    // Check if cookie already exists - if so, just update auth status
+    const hasAuthCookie = document.cookie.includes('auth_session=true');
+    if (hasAuthCookie) {
+      console.log("Auth cookie already exists, just refreshing auth status");
+      await checkAuthStatus();
+      return;
+    }
     
     try {
-      setConflictError(null);
-      
-      // Only check auth if we haven't already verified it in this session
-      if (!authVerified) {
-        // Check calendar auth status from the backend directly
-        const isCalendarAuthed = await apiService.checkCalendarAuth();
-        
-        if (!isCalendarAuthed) {
-          console.log("Calendar auth needed, initiating flow");
-          setIsCalendarAuthPending(true);
-          await handleGoogleAuth();
-          return;
-        } else {
-          // Mark auth as verified so we don't check again unnecessarily
-          setAuthVerified(true);
-          console.log("Auth verified, proceeding with request");
+      // Update last auth time
+      lastAuthInitRef.current = now;
+      setIsCalendarAuthPending(true);
+      console.log("Initiating Google Calendar authentication...");
+      await apiService.initiateCalendarAuth();
+
+      // Create a single event listener that manages both success and polling
+      const handleAuthMessage = (event: MessageEvent) => {
+        if (event.data?.type === "CALENDAR_AUTH_SUCCESS") {
+          console.log("Authentication successful via message");
+          window.removeEventListener("message", handleAuthMessage);
+
+          // Clear polling interval if it exists
+          if (authPollIntervalRef.current) {
+            clearTimeout(authPollIntervalRef.current);
+            authPollIntervalRef.current = undefined;
+          }
+
+          // Store tokens from the message
+          if (event.data.tokens) {
+            console.log("Received tokens in postMessage, storing locally");
+            localStorage.setItem('googleCalendarTokens', JSON.stringify(event.data.tokens));
+          }
+
+          // Set a local flag to indicate successful auth
+          localStorage.setItem('auth_completed', 'true');
+
+          // Small delay to ensure everything is ready
+          setTimeout(() => {
+            checkAuthStatus();
+            setIsCalendarAuthPending(false);
+          }, 500);
         }
+      };
+
+      window.removeEventListener("message", handleAuthMessage); // Clean up any existing listeners
+      window.addEventListener("message", handleAuthMessage);
+
+      // Use recursive setTimeout with incremental backoff instead of setInterval
+      // This prevents overlapping polls and works better with async operations
+      const pollAuth = async (attempt = 0, maxAttempts = 10, delay = 2000) => {
+        // Don't continue polling if component is unmounted
+        if (attempt >= maxAttempts) {
+          console.log("Auth polling max attempts reached");
+          setIsCalendarAuthPending(false);
+          return;
+        }
+        
+        // Check for the auth flag first
+        if (localStorage.getItem('auth_completed') === 'true') {
+          console.log("Auth already completed via postMessage, skipping polling");
+          setIsCalendarAuthPending(false);
+          return;
+        }
+        
+        console.log(`Polling auth status (attempt ${attempt+1}/${maxAttempts})...`);
+        
+        try {
+          const status = await apiService.checkCalendarAuth();
+          if (status) {
+            console.log("Auth polling detected successful authentication");
+            // Update auth status
+            checkAuthStatus();
+            setIsCalendarAuthPending(false);
+          } else {
+            // Check if the cookie exists despite the API saying not authenticated
+            const hasAuthCookie = document.cookie.includes('auth_session=true');
+            if (hasAuthCookie) {
+              console.log("Cookie exists but API reports not authenticated, forcing refresh");
+              checkAuthStatus();
+              setIsCalendarAuthPending(false);
+              return;
+            }
+            
+            // Schedule next poll with slightly increasing delay (capped at 5 seconds)
+            const nextDelay = Math.min(delay * 1.2, 5000);
+            authPollIntervalRef.current = setTimeout(() => {
+              pollAuth(attempt + 1, maxAttempts, nextDelay);
+            }, delay);
+          }
+        } catch (error: unknown) {
+          console.error("Error during auth polling:", error);
+          
+          // If error, still continue polling but with a longer delay
+          const nextDelay = Math.min(delay * 1.5, 5000);
+          authPollIntervalRef.current = setTimeout(() => {
+            pollAuth(attempt + 1, maxAttempts, nextDelay);
+          }, nextDelay);
+        }
+      };
+      
+      // Clean up any existing timer
+      if (authPollIntervalRef.current) {
+        clearTimeout(authPollIntervalRef.current);
+        authPollIntervalRef.current = undefined;
       }
-
-      // Create a new thread with conversation mode and get the ID
-      const threadId = await createThread(inputText, false, true);
-      if (!threadId) {
-        throw new Error("Failed to create thread");
-      }
-
-      setInputText("");
-
-      // Navigate to the thread to see the streaming response
-      navigate(`/chat/${threadId}`);
-
-    } catch (error: any) {
-      if (error.type === "CALENDAR_CONFLICT") {
-        setConflictError({
-          error: error.error,
-          suggestion: error.suggestion,
-        });
-        return;
-      }
-
-      // If we get an auth error, reset the auth verified flag to try again next time
-      if (
-        error instanceof Error &&
-        (error.message === "Calendar authentication required" || 
-         error.message.includes("authentication") || 
-         error.message.includes("auth"))
-      ) {
-        setAuthVerified(false);
-        return;
-      }
-      console.error("Failed to create thread:", error);
-    } finally {
+      
+      // Start polling
+      pollAuth();
+    } catch (error: unknown) {
+      console.error("Failed to initiate auth:", error);
       setIsCalendarAuthPending(false);
     }
-  };
+  }, [checkAuthStatus]);
 
-  const handleKeyDown = React.useCallback(
+  const handleCalendarAuthDirect = useCallback(async () => {
+    try {
+      setCalendarAuthNeeded(true);
+      console.log("Directly initiating Google Calendar auth (bypassing regular auth)");
+      const response = await fetch('/calendar/auth/url', {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const { url } = await response.json();
+        console.log('Opening calendar-specific auth URL:', url);
+        // Open in a popup
+        const authWindow = window.open(url, 'calendarAuth', 'width=800,height=600');
+        if (!authWindow) {
+          console.error("Popup blocked - could not open auth window");
+          setCalendarAuthNeeded(false);
+          return false;
+        }
+        
+        setIsCalendarAuthPending(true);
+        
+        // Start polling to check if calendar auth is complete
+        let attempts = 0;
+        const maxAttempts = 30; // Try for up to 30 * 2 seconds = 1 minute
+        
+        const checkCalendarAuth = () => {
+          attempts++;
+          if (attempts > maxAttempts || authWindow.closed) {
+            clearInterval(checkInterval);
+            setIsCalendarAuthPending(false);
+            setCalendarAuthNeeded(false);
+            return;
+          }
+          
+          // Check calendar auth specifically
+          fetch('/calendar/auth/status', {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' }
+          })
+          .then(resp => resp.json())
+          .then(data => {
+            if (data.isAuthenticated) {
+              console.log("Calendar auth completed successfully via polling");
+              clearInterval(checkInterval);
+              if (!authWindow.closed) {
+                authWindow.close();
+              }
+              checkAuthStatus(); // Update main auth state
+              setIsCalendarAuthPending(false);
+              setCalendarAuthNeeded(false);
+            }
+          })
+          .catch(err => {
+            console.error("Error checking calendar auth:", err);
+            // Still continue polling
+          });
+        };
+        
+        const checkInterval = setInterval(checkCalendarAuth, 2000);
+        return true;
+      } else {
+        console.error("Failed to get calendar auth URL:", await response.text());
+        setCalendarAuthNeeded(false);
+        setIsCalendarAuthPending(false);
+        return false;
+      }
+    } catch (error) {
+      console.error("Error initiating direct calendar auth:", error);
+      setCalendarAuthNeeded(false);
+      setIsCalendarAuthPending(false);
+      return false;
+    }
+  }, [checkAuthStatus]);
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+
+      if (!inputText.trim()) return;
+
+      try {
+        setConflictError(null);
+
+        // First, do a direct server check to see if we're authenticated
+        const serverAuthCheck = await fetch('/api/auth/status', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        let isRegularAuthOk = false;
+        if (serverAuthCheck.ok) {
+          const authData = await serverAuthCheck.json();
+          console.log("Server auth check result:", authData);
+          isRegularAuthOk = authData.isAuthenticated === true;
+        }
+
+        // Check authentication status from state and server check
+        if (!isAuthenticated && !isRegularAuthOk) {
+          // Check for cookie as a third validation
+          const hasAuthCookie = document.cookie.includes('auth_session=true');
+          
+          if (hasAuthCookie) {
+            console.log("Cookie indicates authenticated but state shows unauthenticated, refreshing auth status");
+            await checkAuthStatus();
+            
+            // If still not authenticated after refresh, then initiate auth
+            if (!useAuthStore.getState().isAuthenticated) {
+              console.log("Still not authenticated after refresh, initiating auth flow");
+              handleGoogleAuth();
+              return;
+            }
+          } else {
+            console.log("Not authenticated, initiating auth flow");
+            handleGoogleAuth();
+            return;
+          }
+        }
+
+        console.log("Creating thread and queueing agent task");
+        
+        // Before creating thread, specifically check calendar auth
+        try {
+          const calendarAuthCheck = await fetch('/calendar/auth/status', {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' }
+          });
+          
+          let isCalendarAuthOk = false;
+          if (calendarAuthCheck.ok) {
+            try {
+              const calendarAuthData = await calendarAuthCheck.json();
+              console.log("Calendar auth check result:", calendarAuthData);
+              isCalendarAuthOk = calendarAuthData.isAuthenticated === true;
+              
+              if (!isCalendarAuthOk) {
+                console.log("Calendar auth required - initiating direct calendar auth");
+                const initiated = await handleCalendarAuthDirect();
+                if (initiated) {
+                  // Return early, user needs to complete the auth flow
+                  return;
+                }
+              }
+            } catch (parseError) {
+              console.error("Error parsing calendar auth response:", parseError);
+            }
+          }
+        } catch (calendarCheckError) {
+          console.error("Error checking calendar auth:", calendarCheckError);
+          // Continue to try the thread creation, may work with regular auth
+        }
+        
+        // Create a new thread with conversation mode and get the ID
+        try {
+          const threadId = await createThread(inputText, false, true);
+          if (!threadId) {
+            throw new Error("Failed to create thread");
+          }
+  
+          await queueAgentTask(inputText, 1, { threadId }).catch(console.error);
+  
+          setInputText("");
+  
+          // Navigate to the thread to see the streaming response
+          navigate(`/chat/${threadId}`);
+        } catch (threadError) {
+          // If thread creation fails with calendar auth error, try direct calendar auth
+          if (threadError instanceof Error && 
+              threadError.message.includes("Calendar authentication")) {
+            console.log("Thread creation failed due to calendar auth, trying direct auth");
+            await handleCalendarAuthDirect();
+          } else {
+            // Re-throw other errors
+            throw threadError;
+          }
+        }
+      } catch (error: unknown) {
+        console.error("Error in handleSubmit:", error);
+
+        // Type guard to safely check error properties
+        if (error && typeof error === "object" && "type" in error) {
+          const errorObj = error as {
+            type: string;
+            error: string;
+            suggestion?: string;
+          };
+          if (errorObj.type === "CALENDAR_CONFLICT") {
+            setConflictError({
+              error: errorObj.error,
+              suggestion: errorObj.suggestion,
+            });
+            return;
+          }
+        }
+
+        // Special handling for calendar auth errors
+        if (
+          error instanceof Error &&
+          error.message.includes("Calendar authentication")
+        ) {
+          console.log("Direct calendar auth required error, initiating specific flow");
+          await handleCalendarAuthDirect();
+        }
+        // Handle other authentication errors
+        else if (
+          error instanceof Error &&
+          (error.message.includes("authentication") ||
+           error.message.includes("auth"))
+        ) {
+          // Check if we've already tried authenticating recently
+          const now = Date.now();
+          if (now - lastAuthInitRef.current > AUTH_COOLDOWN) {
+            console.log("Auth error, initiating new auth flow");
+            handleGoogleAuth();
+          } else {
+            console.log("Auth error but recently tried auth, waiting for completion");
+            // Just refresh the auth status instead of starting a new flow
+            await checkAuthStatus();
+          }
+        }
+      }
+    },
+    [inputText, isAuthenticated, createThread, navigate, handleGoogleAuth, checkAuthStatus, AUTH_COOLDOWN, handleCalendarAuthDirect]
+  );
+
+  const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
@@ -216,14 +472,20 @@ const ChatCompose: React.FC = () => {
     [handleSubmit]
   );
 
-  const handlePromptClick = (promptId: string) => {
+  const handlePromptClick = useCallback((promptId: string) => {
     setSelectedPrompt(promptId);
     const prompt = prompts.find((p) => p.id === promptId);
     if (prompt) {
       setInputText(prompt.title);
     }
-  };
+  }, []);
 
+  const handleLogout = useCallback(async () => {
+    await logout();
+    setAuthInitiated(false); // Reset auth state for next login
+  }, [logout]);
+
+  // Show loading state
   if (isCheckingAuth) {
     return (
       <div className="auth-loading">
@@ -240,6 +502,7 @@ const ChatCompose: React.FC = () => {
     );
   }
 
+  // Show calendar auth pending state
   if (isCalendarAuthPending) {
     return (
       <div className="auth-loading">
@@ -255,7 +518,25 @@ const ChatCompose: React.FC = () => {
       </div>
     );
   }
+  
+  // Show calendar auth needed but not pending
+  if (calendarAuthNeeded && !isCalendarAuthPending) {
+    return (
+      <div className="auth-container">
+        <div className="welcome-icon">
+          <img src={owldooLogo} alt="Owldoo Logo" width="120" height="120" />
+        </div>
+        <h1>Google Calendar Authentication Required</h1>
+        <p>We need to connect to your Google Calendar to continue.</p>
+        <p>You are signed in to Owldoo but need calendar access to perform this action.</p>
+        <button className="google-auth-button" onClick={handleCalendarAuthDirect}>
+          Connect Google Calendar
+        </button>
+      </div>
+    );
+  }
 
+  // Show unauthenticated state
   if (!isAuthenticated) {
     return (
       <div className="auth-container">
@@ -271,10 +552,7 @@ const ChatCompose: React.FC = () => {
     );
   }
 
-  const handleLogout = async () => {
-    await logout();
-  };
-
+  // Show authenticated state / main UI
   return (
     <div className="compose-container">
       <header className="compose-header">
@@ -292,7 +570,6 @@ const ChatCompose: React.FC = () => {
             the prompts below
           </p>
         </div>
-        {/* TODO: move logout button to chat threads page */}
         <div className="header-bottom">
           <button onClick={handleLogout} className="logout-button">
             <LogOut size={16} />
@@ -332,12 +609,18 @@ const ChatCompose: React.FC = () => {
           placeholder="Ask whatever you want...."
           className="compose-input"
         />
-        <button type="submit" className="compose-submit-button">
+        <button
+          type="submit"
+          className="compose-submit-button"
+          disabled={isLoading}
+        >
           <Send size={20} />
         </button>
       </form>
+
       {isLoading && <p>Loading...</p>}
       {error && <p>Error: {error}</p>}
+
       {conflictError && (
         <div className="conflict-alert">
           <p>{conflictError.error}</p>
@@ -347,7 +630,7 @@ const ChatCompose: React.FC = () => {
                 onClick={() => {
                   setInputText(
                     `Yes, schedule for ${new Date(
-                      conflictError.suggestion!
+                      conflictError?.suggestion || Date.now()
                     ).toLocaleString()}`
                   );
                 }}
@@ -368,4 +651,5 @@ const ChatCompose: React.FC = () => {
     </div>
   );
 };
+
 export default ChatCompose;

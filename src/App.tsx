@@ -13,6 +13,7 @@ import WorkingHours from "./components/Scheduling/WorkingHours/WorkingHours";
 import MeetingPreferences from "./components/Scheduling/MeetingPreferences/MeetingPreferences";
 import FocusTimePreferences from "./components/Scheduling/FocusTimePreferences/FocusTimePreferences";
 import NLPDashboard from "./components/NLPDashboard/NLPDashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function NotFound() {
   return (
@@ -29,12 +30,36 @@ function App() {
     <ErrorBoundary>
       <Router>
         <Routes>
+          {/* Home route (ChatCompose) is always accessible */}
           <Route path="/" element={<ChatCompose />} />
-          <Route path="/chat/:threadId" element={<ChatThread />} />
-          <Route path="/settings/working-hours" element={<WorkingHours />} />
-          <Route path="/settings/meeting-preferences" element={<MeetingPreferences />} />
-          <Route path="/settings/focus-time" element={<FocusTimePreferences />} />
-          <Route path="/nlp-dashboard" element={<NLPDashboard />} />
+          
+          {/* Protected routes that require authentication */}
+          <Route path="/chat/:threadId" element={
+            <ProtectedRoute>
+              <ChatThread />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings/working-hours" element={
+            <ProtectedRoute>
+              <WorkingHours />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings/meeting-preferences" element={
+            <ProtectedRoute>
+              <MeetingPreferences />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings/focus-time" element={
+            <ProtectedRoute>
+              <FocusTimePreferences />
+            </ProtectedRoute>
+          } />
+          <Route path="/nlp-dashboard" element={
+            <ProtectedRoute>
+              <NLPDashboard />
+            </ProtectedRoute>
+          } />
+          
           <Route path="/404" element={<NotFound />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>

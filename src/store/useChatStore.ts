@@ -23,6 +23,9 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
     currentConversationId: null,
     isLoading: false,
     error: null,
+    setThreads: (threads: Thread[]) => {
+        set(state => ({ ...state, threads }));
+    },
     createThread: async (initialMessage: string, skipAgentTask?: boolean, useConversation?: boolean): Promise<string> => {
         set((state) => ({
             ...state, isLoading: true, error: null
@@ -570,6 +573,68 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                 isLoading: false,
                 error: error.message
             }));
+        }
+    },
+    // New function to load a specific thread by ID
+    getThreadById: async (threadId: string) => {
+        set(state => ({ 
+            ...state, 
+            isLoading: true, 
+            error: null,
+            currentThreadId: threadId // Set currentThreadId right away
+        }));
+        
+        try {
+            // Check if we already have this thread in state
+            const existingThread = get().threads.find(t => t.id === threadId);
+            if (existingThread) {
+                console.log('Thread already in state, using cached version:', existingThread);
+                // Thread already exists in state, just set loading to false
+                set(state => ({ ...state, isLoading: false }));
+                return existingThread;
+            }
+            
+            console.log('Fetching specific thread from API:', threadId);
+            // Thread doesn't exist in state, fetch it
+            const threadFromServer = await apiService.getThread(threadId);
+            
+            if (!threadFromServer) {
+                throw new Error(`Thread with ID ${threadId} not found`);
+            }
+            
+            const transformedThread: Thread = {
+                id: threadFromServer._id,
+                messages: threadFromServer.messages.map(message => ({
+                    id: uuid(),
+                    sender: mapSenderType(message.sender),
+                    content: message.content,
+                    timestamp: message.timestamp,
+                })),
+                createdAt: threadFromServer.createdAt,
+                conversationId: threadFromServer.conversationId
+            };
+            
+            // Add this thread to our state
+            set(state => ({ 
+                ...state, 
+                threads: [...state.threads.filter(t => t.id !== threadId), transformedThread],
+                isLoading: false 
+            }));
+            
+            // If thread has conversationId, also get the conversation
+            if (transformedThread.conversationId) {
+                get().getCurrentConversation(transformedThread.conversationId);
+            }
+            
+            return transformedThread;
+        } catch (error: any) {
+            console.error('Error fetching thread by ID:', error);
+            set(state => ({
+                ...state,
+                isLoading: false,
+                error: error.message
+            }));
+            return null;
         }
     },
     getConversationHistory: async () => {
