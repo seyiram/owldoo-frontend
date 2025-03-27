@@ -15,6 +15,9 @@ interface TokenStorage {
     expiry_date: number | null;
   };
   clearTokens(): void;
+  checkAuthStatus(): Promise<boolean>;
+  refreshTokenIfNeeded(): Promise<boolean>;
+  isTokenExpired(): boolean;
 }
 
 // For access token and refresh token, we'll use HTTP-only cookies via API
@@ -23,8 +26,8 @@ export const tokenStorage: TokenStorage = {
   setTokens(tokens) {
     // Store expiry date in localStorage AND a regular cookie for redundancy
     localStorage.setItem('auth_expiry', tokens.expiry_date.toString());
-    document.cookie = `auth_expiry_backup=${tokens.expiry_date}; path=/; max-age=${60*60*24*30}`; // 30-day expiry
-    
+    document.cookie = `auth_expiry_backup=${tokens.expiry_date}; path=/; max-age=${60 * 60 * 24 * 30}`; // 30-day expiry
+
     // Send tokens to backend to set as HTTP-only cookies
     return fetch('/api/auth/set-cookies', {
       method: 'POST',
@@ -39,11 +42,11 @@ export const tokenStorage: TokenStorage = {
       credentials: 'include', // Important for cookies
     });
   },
-  
+
   getTokens() {
     // Try to get expiry from multiple sources for redundancy
     const localExpiry = localStorage.getItem('auth_expiry');
-    
+
     // Also try to get from cookie if localStorage is empty
     let cookieExpiry = null;
     if (!localExpiry) {
@@ -58,9 +61,9 @@ export const tokenStorage: TokenStorage = {
         }
       }
     }
-    
+
     const expiry = localExpiry || cookieExpiry;
-    
+
     // For tokens, we'll return null as they should be in HTTP-only cookies
     // and automatically sent with requests
     return {
@@ -69,7 +72,7 @@ export const tokenStorage: TokenStorage = {
       expiry_date: expiry ? parseInt(expiry, 10) : null,
     };
   },
-  
+
   isTokenExpired(): boolean {
     // If we don't have an expiry stored, check with the server instead of assuming expired
     const tokensData = this.getTokens();
@@ -77,15 +80,15 @@ export const tokenStorage: TokenStorage = {
       // We'll check with the server in refreshTokenIfNeeded
       return true;
     }
-    
+
     // Add a 5-minute buffer to ensure we refresh before actual expiration
     return Date.now() >= (tokensData.expiry_date - 5 * 60 * 1000);
   },
-  
+
   async refreshTokenIfNeeded(): Promise<boolean> {
     // If we have no expiry data or it's expired, always check with the server
     const shouldRefresh = this.isTokenExpired();
-    
+
     if (shouldRefresh) {
       try {
         const url = '/api/auth/refresh';
@@ -98,7 +101,7 @@ export const tokenStorage: TokenStorage = {
             'Accept': 'application/json',
           },
         });
-        
+
         if (response.ok) {
           try {
             // First check if response is actually JSON
@@ -109,14 +112,14 @@ export const tokenStorage: TokenStorage = {
               console.error('Non-JSON response:', textResponse);
               return false;
             }
-            
+
             const data = await response.json();
             console.log('Token refresh response:', data);
-            
+
             if (data.expiry_date) {
               // Update both localStorage and cookie
               localStorage.setItem('auth_expiry', data.expiry_date.toString());
-              document.cookie = `auth_expiry_backup=${data.expiry_date}; path=/; max-age=${60*60*24*30}`;
+              document.cookie = `auth_expiry_backup=${data.expiry_date}; path=/; max-age=${60 * 60 * 24 * 30}`;
               return true;
             }
           } catch (parseError) {
@@ -136,7 +139,7 @@ export const tokenStorage: TokenStorage = {
     }
     return true; // Token is still valid
   },
-  
+
   // Get auth status directly from server
   async checkAuthStatus(): Promise<boolean> {
     try {
@@ -150,7 +153,7 @@ export const tokenStorage: TokenStorage = {
           'Accept': 'application/json',
         },
       });
-      
+
       if (response.ok) {
         try {
           // First check if response is actually JSON
@@ -161,14 +164,14 @@ export const tokenStorage: TokenStorage = {
             console.error('Non-JSON response:', textResponse);
             return false;
           }
-          
+
           const data = await response.json();
           console.log('Auth status response:', data);
-          
+
           if (data.isAuthenticated && data.expiry_date) {
             // Update expiry information from server
             localStorage.setItem('auth_expiry', data.expiry_date.toString());
-            document.cookie = `auth_expiry_backup=${data.expiry_date}; path=/; max-age=${60*60*24*30}`;
+            document.cookie = `auth_expiry_backup=${data.expiry_date}; path=/; max-age=${60 * 60 * 24 * 30}`;
           }
           return data.isAuthenticated === true;
         } catch (parseError) {
@@ -197,14 +200,14 @@ export const tokenStorage: TokenStorage = {
       return false;
     }
   },
-  
+
   clearTokens() {
     // Clear localStorage
     localStorage.removeItem('auth_expiry');
-    
+
     // Clear cookies
     document.cookie = 'auth_expiry_backup=; path=/; max-age=0';
-    
+
     // Clear HTTP-only cookies via API
     return fetch('/api/auth/clear-cookies', {
       method: 'POST',

@@ -42,6 +42,19 @@ const prompts = [
   },
 ];
 
+// Check if the message requires calendar access
+const isCalendarRelatedCommand = (message: string): boolean => {
+  const calendarKeywords = [
+    'schedule', 'meeting', 'calendar', 'appointment', 'book', 
+    'reschedule', 'cancel', 'move', 'postpone', 'availability',
+    'free time', 'busy', 'event', 'remind', 'sync', 'when am i',
+    'time slot', 'tomorrow at', 'today at', 'pm', 'am'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return calendarKeywords.some(keyword => lowerMessage.includes(keyword));
+};
+
 const ChatCompose = () => {
   const navigate = useNavigate();
   const queueAgentTask = useAgentStore((state) => state.queueTask);
@@ -64,45 +77,14 @@ const ChatCompose = () => {
   const { isAuthenticated, isCheckingAuth, userName, checkAuthStatus, logout } =
     useAuthStore();
 
-  // Run auth check on component mount and when authInitiated changes
   useEffect(() => {
-    // Use a local variable to track if cleanup has occurred
-    let isMounted = true;
-    
-    const checkAuth = async () => {
-      // Always check auth status on mount or when authInitiated is reset
-      if (isMounted) {
-        setAuthInitiated(true);
-        
-        // Clear any stale auth flags
-        localStorage.removeItem('auth_completed');
-        
-        console.log("Running auth check in ChatCompose");
-        
-        // Check for auth cookie first
-        const hasAuthCookie = document.cookie.includes('auth_session=true');
-        if (hasAuthCookie) {
-          console.log("Auth cookie found on component mount");
-        }
-        
-        await checkAuthStatus();
-      }
-    };
-    
-    checkAuth();
-
-    // Clean up function for when component unmounts
     return () => {
-      // Mark component as unmounted to prevent state updates
-      isMounted = false;
-      
-      // Clear any active polling
       if (authPollIntervalRef.current) {
         clearInterval(authPollIntervalRef.current);
         authPollIntervalRef.current = undefined;
       }
     };
-  }, [checkAuthStatus, authInitiated]);
+  }, []);
 
   // Track when last auth was initiated to prevent duplicate requests
   const lastAuthInitRef = useRef<number>(0);
@@ -315,62 +297,55 @@ const ChatCompose = () => {
 
       try {
         setConflictError(null);
-
-        // First, do a direct server check to see if we're authenticated
-        const serverAuthCheck = await fetch('/api/auth/status', {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        });
         
-        let isRegularAuthOk = false;
-        if (serverAuthCheck.ok) {
-          const authData = await serverAuthCheck.json();
-          console.log("Server auth check result:", authData);
-          isRegularAuthOk = authData.isAuthenticated === true;
-        }
-
-        // Check authentication status from state and server check
-        if (!isAuthenticated && !isRegularAuthOk) {
-          // Check for cookie as a third validation
-          const hasAuthCookie = document.cookie.includes('auth_session=true');
+        // Only check calendar authentication for calendar-related commands
+        const needsCalendarAuth = isCalendarRelatedCommand(inputText);
+        console.log(`Message analysis: ${needsCalendarAuth ? 'Calendar-related' : 'Non-calendar'} command detected`);
+        
+        // For calendar operations, check authentication just-in-time
+        if (needsCalendarAuth) {
+          console.log("Calendar operation detected, verifying authentication");
           
-          if (hasAuthCookie) {
-            console.log("Cookie indicates authenticated but state shows unauthenticated, refreshing auth status");
-            await checkAuthStatus();
+          // Check if already authenticated first (to avoid unnecessary API calls)
+          if (!isAuthenticated) {
+            console.log("Not authenticated, checking server auth status");
             
-            // If still not authenticated after refresh, then initiate auth
-            if (!useAuthStore.getState().isAuthenticated) {
-              console.log("Still not authenticated after refresh, initiating auth flow");
+            // Server-side auth check
+            const serverAuthCheck = await fetch('/api/auth/status', {
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            let isRegularAuthOk = false;
+            if (serverAuthCheck.ok) {
+              const authData = await serverAuthCheck.json();
+              isRegularAuthOk = authData.isAuthenticated === true;
+            }
+            
+            // If not authenticated, initiate auth flow
+            if (!isRegularAuthOk) {
+              console.log("Authentication needed for calendar operation");
               handleGoogleAuth();
               return;
             }
-          } else {
-            console.log("Not authenticated, initiating auth flow");
-            handleGoogleAuth();
-            return;
           }
-        }
-
-        console.log("Creating thread and queueing agent task");
-        
-        // Before creating thread, specifically check calendar auth
-        try {
-          const calendarAuthCheck = await fetch('/calendar/auth/status', {
-            method: 'GET',
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' }
-          });
           
-          let isCalendarAuthOk = false;
-          if (calendarAuthCheck.ok) {
-            try {
+          // Calendar-specific auth check for calendar operations
+          console.log("Checking specific calendar auth status");
+          try {
+            const calendarAuthCheck = await fetch('/calendar/auth/status', {
+              method: 'GET',
+              credentials: 'include',
+              headers: { 'Accept': 'application/json' }
+            });
+            
+            if (calendarAuthCheck.ok) {
               const calendarAuthData = await calendarAuthCheck.json();
-              console.log("Calendar auth check result:", calendarAuthData);
-              isCalendarAuthOk = calendarAuthData.isAuthenticated === true;
+              const isCalendarAuthOk = calendarAuthData.isAuthenticated === true;
               
               if (!isCalendarAuthOk) {
                 console.log("Calendar auth required - initiating direct calendar auth");
@@ -380,16 +355,18 @@ const ChatCompose = () => {
                   return;
                 }
               }
-            } catch (parseError) {
-              console.error("Error parsing calendar auth response:", parseError);
             }
+          } catch (calendarCheckError) {
+            console.error("Error checking calendar auth:", calendarCheckError);
+            // Continue to try the thread creation, may work with regular auth
           }
-        } catch (calendarCheckError) {
-          console.error("Error checking calendar auth:", calendarCheckError);
-          // Continue to try the thread creation, may work with regular auth
+        } else {
+          // For non-calendar operations, no authentication checks needed
+          console.log("Non-calendar operation - skipping auth checks");
         }
         
         // Create a new thread with conversation mode and get the ID
+        console.log("Creating thread and queueing agent task");
         try {
           const threadId = await createThread(inputText, false, true);
           if (!threadId) {
@@ -485,8 +462,18 @@ const ChatCompose = () => {
     setAuthInitiated(false); // Reset auth state for next login
   }, [logout]);
 
-  // Show loading state
-  if (isCheckingAuth) {
+  // Only show auth UI when triggered by an actual calendar operation
+  const [showingAuthCheck, setShowingAuthCheck] = useState(false);
+  
+  useEffect(() => {
+    if (isCheckingAuth && (isCalendarAuthPending || calendarAuthNeeded)) {
+      setShowingAuthCheck(true);
+    } else if (!isCheckingAuth) {
+      setShowingAuthCheck(false);
+    }
+  }, [isCheckingAuth, isCalendarAuthPending, calendarAuthNeeded]);
+  
+  if (showingAuthCheck) {
     return (
       <div className="auth-loading">
         <img

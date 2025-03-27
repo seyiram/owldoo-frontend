@@ -25,6 +25,7 @@
 - **Auth Redundancy**: Implement fallback mechanisms for auth verification
 - **Local Storage**: Use for non-sensitive data only; keep tokens in HTTP-only cookies
 - **Auth Expiry**: Track expiry dates properly and refresh before expiration
+- **Lazy Authentication**: Only check authentication when needed for features that require it
 
 ## Error Handling
 - **Network Errors**: Catch and handle fetch errors with specific error types
@@ -44,6 +45,10 @@
   - PascalCase for components and interfaces
   - camelCase for variables, functions, and instances
   - Use descriptive names that reflect purpose
+- **Comments**:
+  - Include only comments that help future developers understand the code
+  - Avoid unnecessary or redundant commentary that restates the obvious
+  - Use comments to explain complex logic, edge cases, or non-obvious behavior
 
 ## React Query Usage
 - Use the @tanstack/react-query hooks for data fetching
