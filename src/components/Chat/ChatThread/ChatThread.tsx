@@ -10,15 +10,19 @@ import { useAuthStore } from "../../../store/useAuthStore";
 import { AuthState } from "../../../types/auth.types";
 import { formatDateTime } from "../../../utils/dateUtils";
 import { v4 as uuid } from "uuid";
-import { Thread, Message, MessageSender } from "../../../types/chat.types";
+import { Thread, Message, MessageSender, ProcessingStep, ProcessingStepType } from "../../../types/chat.types";
 
 // Set to false unless actively debugging
 const DEBUG = false;
+
+// Only show processing steps in debug mode
+const SHOW_PROCESSING_STEPS = false;
 
 const ChatThread: React.FC = () => {
   const { threadId } = useParams<{ threadId: string }>();
   const [visibleThreads, setVisibleThreads] = useState(10);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showProcessingSteps, setShowProcessingSteps] = useState(true);
   const navigate = useNavigate();
 
   const threads = useChatStore((state) => state.threads);
@@ -334,6 +338,85 @@ const ChatThread: React.FC = () => {
 
   const handleShowMore = () => {
     setVisibleThreads((prev) => prev + 5);
+  };
+
+  // Function to render processing steps block with proper UI
+  const renderProcessingStepsBlock = (steps: ProcessingStep[], className: string = ""): JSX.Element => {
+    return (
+      <div className={`thread-processing-steps ${className}`}>
+        <div className="processing-header">
+          <h3>Agent Processing Activity</h3>
+          <button 
+            className="toggle-processing" 
+            onClick={() => setShowProcessingSteps(!showProcessingSteps)}
+          >
+            {showProcessingSteps ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {showProcessingSteps && renderProcessingSteps(steps)}
+      </div>
+    );
+  };
+
+  // Function to render processing steps content
+  const renderProcessingSteps = (steps: ProcessingStep[]): JSX.Element => {
+    // Make a copy and sort steps by timestamp to ensure proper order
+    const sortedSteps = [...steps].sort((a, b) => {
+      const dateA = new Date(a.timestamp).getTime();
+      const dateB = new Date(b.timestamp).getTime();
+      return dateA - dateB; // Earliest first
+    });
+    
+    // Check if we have a COMPLETED step - if not, we're still in progress
+    const hasCompleted = sortedSteps.some(step => step.stepType === 'COMPLETED');
+    const hasError = sortedSteps.some(step => step.stepType === 'ERROR');
+    const isCompleted = hasCompleted || hasError;
+    
+    if (DEBUG) {
+      console.log('Rendering processing steps:');
+      console.log('Original steps order:', steps.map(s => `${s.stepType}: ${new Date(s.timestamp).toLocaleTimeString()}`));
+      console.log('Sorted steps order:', sortedSteps.map(s => `${s.stepType}: ${new Date(s.timestamp).toLocaleTimeString()}`));
+      console.log('Process completed:', isCompleted);
+    }
+    
+    return (
+      <div className="processing-steps">
+        {sortedSteps.map((step, index) => (
+          <div 
+            key={index} 
+            className={`processing-step-item processing-${step.stepType.toLowerCase()} ${
+              !isCompleted && index === sortedSteps.length - 1 ? 'ongoing' : ''
+            }`}
+            style={{ animationDelay: `${index * 100}ms` }}
+          >
+            <div className="step-header">
+              <span className="step-type">
+                {step.stepType}
+                {!isCompleted && index === sortedSteps.length - 1 && 
+                  <span className="processing-indicator"></span>
+                }
+              </span>
+              <span className="step-timestamp">{formatDateTime(step.timestamp)}</span>
+            </div>
+            <div className="step-description">{step.description}</div>
+            {step.details && Object.keys(step.details).length > 0 && (
+              <div className="step-details">
+                {Object.entries(step.details).map(([key, value]) => (
+                  <div key={key} className="detail-item">
+                    <span className="detail-key">{key}:</span>
+                    <span className="detail-value">
+                      {typeof value === 'object' 
+                        ? JSON.stringify(value) 
+                        : String(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const renderMessage = (message: Message): JSX.Element | string => {
@@ -920,26 +1003,71 @@ const ChatThread: React.FC = () => {
                     >
                       Reload Thread History
                     </button>
+                    
+                    {/* Show processing steps only in debug mode */}
+                    {currentThread?.processingSteps && currentThread.processingSteps.length > 0 && (
+                      <div className="developer-debug-section">
+                        <h4>Processing Steps (Developer Only)</h4>
+                        <pre>
+                          {JSON.stringify(currentThread.processingSteps, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                   </>
                 )}
               </div>}
               
+              {/* Don't show processing steps at the top of the thread */}
+              
               {currentThread?.messages ? (
-                currentThread.messages.map((message) => (
-                  <div
-                    key={message.id} // Changed from index to message.id
-                    className={`message-item ${
-                      message.sender === "user" ? "user-message" : "bot-message"
-                    }`}
-                  >
-                    <div className="message-content">
-                      {renderMessage(message)}
-                    </div>
-                    <span className="message-timestamp">
-                      {formatDateTime(message.timestamp)}
-                    </span>
-                  </div>
-                ))
+                <>
+                  {/* Render messages with processing steps in between */}
+                  {currentThread.messages.map((message, index) => {
+                    // Get next message if it exists
+                    const nextMessage = index < currentThread.messages.length - 1 
+                      ? currentThread.messages[index + 1] 
+                      : null;
+                    
+                    return (
+                      <React.Fragment key={message.id}>
+                        {/* Render current message */}
+                        <div
+                          className={`message-item ${
+                            message.sender === "user" ? "user-message" : "bot-message"
+                          }`}
+                        >
+                          <div className="message-content">
+                            {renderMessage(message)}
+                          </div>
+                          <span className="message-timestamp">
+                            {formatDateTime(message.timestamp)}
+                          </span>
+                        </div>
+                        
+                        {/* Display simple calendar check info after user message */}
+                        {message.sender === "user" && 
+                         nextMessage?.sender === "bot" &&
+                         (message.content.toLowerCase().includes("availability") || 
+                          message.content.toLowerCase().includes("calendar") || 
+                          message.content.toLowerCase().includes("schedule")) && (
+                          <div className="availability-summary">
+                            <div className="availability-result busy">
+                              <div className="availability-header">
+                                <span className="availability-icon">🗓️</span>
+                                <span className="availability-status">
+                                  Calendar Check
+                                </span>
+                              </div>
+                              <div className="availability-details">
+                                Checking your calendar availability
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </>
               ) : (
                 <div className="no-messages">
                   No messages found in this thread. The thread may be loading or not available.

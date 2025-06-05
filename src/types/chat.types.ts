@@ -8,12 +8,23 @@ export interface Message {
     hasConflict?: boolean;
 }
 
+export type ProcessingStepType = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'ERROR';
+
+export interface ProcessingStep {
+    stepType: ProcessingStepType;
+    description: string;
+    timestamp: string;
+    details?: Record<string, any>;
+}
+
 export interface Thread {
     id: string;
     messages: Message[];
     title?: string;
     createdAt: string;
     conversationId?: string; // Link to conversation if part of a structured conversation
+    processingSteps?: ProcessingStep[]; // Agent processing steps
+    relatedAgentTasks?: string[]; // Related agent task IDs
 }
 
 export type ConversationIntent = 
@@ -87,11 +98,20 @@ export interface ServerMessage {
     timestamp: string;
 }
 
+export interface ServerProcessingStep {
+    stepType: ProcessingStepType;
+    description: string;
+    timestamp: string;
+    details?: Record<string, any>;
+}
+
 export interface ServerThread {
     _id: string;
     messages: ServerMessage[];
     createdAt: string;
     conversationId?: string;
+    processingSteps?: ServerProcessingStep[];
+    relatedAgentTasks?: string[];
 }
 
 export interface ServerConversation {

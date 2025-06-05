@@ -562,7 +562,9 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                     timestamp: message.timestamp,
                 })),
                 createdAt: thread.createdAt,
-                conversationId: thread.conversationId
+                conversationId: thread.conversationId,
+                processingSteps: thread.processingSteps,
+                relatedAgentTasks: thread.relatedAgentTasks
             }));
 
             set(state => ({ ...state, threads: transformedThreads, isLoading: false }));
@@ -611,7 +613,9 @@ export const useChatStore = create<ChatState>((set: (fn: (state: ChatState) => C
                     timestamp: message.timestamp,
                 })),
                 createdAt: threadFromServer.createdAt,
-                conversationId: threadFromServer.conversationId
+                conversationId: threadFromServer.conversationId,
+                processingSteps: threadFromServer.processingSteps,
+                relatedAgentTasks: threadFromServer.relatedAgentTasks
             };
             
             // Add this thread to our state

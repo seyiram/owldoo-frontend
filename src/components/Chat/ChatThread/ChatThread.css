@@ -397,6 +397,30 @@
   margin-top: 8px;
 }
 
+.developer-debug-section {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: #1a202c;
+  color: #90cdf4;
+  border-radius: 4px;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.developer-debug-section h4 {
+  color: #f8b4b4;
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.developer-debug-section pre {
+  font-family: monospace;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a0aec0;
+}
+
 .no-messages {
   background-color: #f8d7da;
   border: 1px solid #f5c6cb;
@@ -663,4 +687,293 @@
   margin-top: 8px;
   border-top: 1px solid #f3f4f6;
   padding-top: 8px;
+}
+
+/* Agent processing steps styles */
+.thread-processing-steps {
+  margin: 20px 0 30px;
+  padding: 16px;
+  background-color: #f9f5ff;
+  border-radius: 8px;
+  border: 1px solid #e9d5ff;
+}
+
+/* When processing steps appear between messages */
+.thread-processing-steps.between-messages {
+  margin: 10px 0;
+  max-width: 85%;
+  margin-left: 60px; /* Indent to align with bot message */
+  animation: fadeIn 0.4s ease-in;
+  box-shadow: 0 2px 8px rgba(147, 51, 234, 0.1);
+}
+
+/* Ongoing processing indicator */
+.processing-step-item.ongoing {
+  border-left-width: 3px;
+  box-shadow: 0 0 12px rgba(147, 51, 234, 0.2);
+}
+
+.processing-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: currentColor;
+  border-radius: 50%;
+  margin-left: 6px;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 0.3; transform: scale(0.8); }
+}
+
+.processing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.processing-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* User-friendly availability summary styles */
+.availability-summary {
+  margin: 10px 0 10px 60px;
+  max-width: 80%;
+  animation: fadeIn 0.4s ease;
+}
+
+.availability-result {
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.availability-result.available {
+  background-color: #d1fae5;
+  border: 1px solid #a7f3d0;
+}
+
+.availability-result.busy {
+  background-color: #f0f9ff;
+  border: 1px solid #bfdbfe;
+}
+
+.availability-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.availability-icon {
+  font-size: 18px;
+}
+
+.availability-status {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.availability-result.available .availability-status {
+  color: #047857;
+}
+
+.availability-result.busy .availability-status {
+  color: #1e40af;
+}
+
+.availability-details {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.availability-result.available .availability-details {
+  color: #065f46;
+}
+
+.availability-result.busy .availability-details {
+  color: #1e3a8a;
+}
+
+.event-count {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  margin-top: 8px;
+  color: #991b1b;
+}
+
+.event-list {
+  margin-top: 10px;
+}
+
+.event-items {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+}
+
+.event-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 5px;
+  background-color: rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.event-title {
+  font-weight: 500;
+  color: #991b1b;
+}
+
+.event-time {
+  font-weight: 400;
+  color: #7f1d1d;
+  background-color: rgba(254, 226, 226, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.event-summary {
+  font-size: 13px;
+  color: #991b1b;
+  padding: 8px;
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  margin-top: 5px;
+}
+
+.thread-processing-steps h3 {
+  margin: 0;
+  color: #9333ea;
+  font-weight: 600;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+}
+
+.thread-processing-steps h3:before {
+  content: "⚙️";
+  margin-right: 8px;
+}
+
+.toggle-processing {
+  background-color: #9333ea;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background-color 0.2s;
+}
+
+.toggle-processing:hover {
+  background-color: #7928ca;
+}
+
+.processing-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.processing-step-item {
+  padding: 12px;
+  border-radius: 6px;
+  background-color: white;
+  border-left: 3px solid #ccc;
+  animation: fadeIn 0.3s ease forwards;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.processing-step-item.processing-started {
+  border-left-color: #60a5fa;
+}
+
+.processing-step-item.processing-progress {
+  border-left-color: #f59e0b;
+}
+
+.processing-step-item.processing-completed {
+  border-left-color: #10b981;
+}
+
+.processing-step-item.processing-error {
+  border-left-color: #ef4444;
+}
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.step-type {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background-color: #f3f4f6;
+}
+
+.processing-started .step-type {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.processing-progress .step-type {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.processing-completed .step-type {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.processing-error .step-type {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.step-timestamp {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.step-description {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.step-details {
+  background-color: #f9fafb;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.detail-item {
+  margin-bottom: 4px;
+}
+
+.detail-key {
+  font-weight: 600;
+  margin-right: 6px;
+  color: #4b5563;
 }
