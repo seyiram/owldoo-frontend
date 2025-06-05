@@ -123,7 +123,7 @@ class ApiService {
 
         return new Headers({
             'Content-Type': 'application/json',
-            // No Authorization header needed since we're using Google's OAuth
+            // No Authorization header needed using Google's OAuth
         });
     }
 
@@ -138,7 +138,7 @@ class ApiService {
                 ...options,
                 headers: {
                     ...Object.fromEntries(headers),
-                    ...options?.headers // Use optional chaining here
+                    ...options?.headers 
                 },
                 credentials: 'include' // Important for OAuth cookies
             });
@@ -167,7 +167,7 @@ class ApiService {
         }
     }
 
-    // Add refresh token endpoint
+    // refresh token endpoint
     async refreshToken(refreshToken: string): Promise<{
         accessToken: string;
         refreshToken: string;
@@ -297,7 +297,7 @@ class ApiService {
         // First check for auth cookie which indicates general authentication
         const hasAuthCookie = document.cookie.includes('auth_session=true');
         
-        // If we have the auth cookie, consider it valid as we're using the same auth for both
+        // If we have the auth cookie, it is valid as we're using the same auth for both
         if (hasAuthCookie) {
             return true;
         }
